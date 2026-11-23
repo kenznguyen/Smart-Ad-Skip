@@ -1,32 +1,32 @@
 # Architecture
 
-## v0.2.2 — P2 Ad State Detection (observe-only)
+## v0.2.3 — P2.3 Multi-signal Ad Detection (observe-only)
 
-P2 adds bounded structural metadata and a conservative rule-based classifier. It does not perform UI actions.
+P2.3 adds source isolation and corroborating signals to the P2 classifier for the current Fruit Blast validation target.
+
+### Event-source isolation
+
+- Only Accessibility events whose package is exactly `com.funnyvideo.cgame.fruitblast` enter the classifier or replace the dashboard's latest snapshot.
+- System UI, MIUI Screen Recorder and other package events are ignored. They cannot overwrite a Fruit Blast observation or create an ad-completion transition.
+- This target-package filter is intentionally explicit; adding another target app requires a separately reviewed configuration and tests.
+
+### Evidence model
+
+- `AD_PLAYING`: a fresh, non-empty Fruit Blast tree has either a recognized semantic ad-container Resource ID or an exact allowlisted rewarded-ad SDK Activity class.
+- Allowlisted SDK Activity classes: MBridge `MBRewardVideoActivity`, Google Mobile Ads `AdActivity`, Unity Ads `AdUnitActivity`, AppLovin `AppLovinFullscreenActivity`, and Meta Audience Network `AudienceNetworkActivity`.
+- `SKIP_AVAILABLE`: a semantic ad-container Resource ID and a clickable node with a Skip Resource ID occur in the same fresh tree.
+- `AD_COMPLETED`: a fresh, non-empty tree from the same Fruit Blast package follows a prior fresh tree with a semantic ad-container marker or allowlisted SDK Activity, and the current tree no longer contains that evidence.
+- Generic `WebView`, `Button`, clickability, node counts, window changes, or external package events are not ad evidence.
+- Unsupported or ambiguous cases remain `UNKNOWN`.
 
 ### Structural metadata allowlist
 
-For at most 200 nodes per Accessibility event, the service reads only:
-- View class name
-- Resource ID
-- Clickable flag
-- Screen bounds (left, top, right, bottom)
-
-The Accessibility service enables Android's `flagReportViewIds` so Resource IDs can be exposed where the target app provides them. The existing package, event, window, node-count and timestamp fields remain. No node text, content description, input value, password, screenshot, OCR, gesture or click data is read or stored. Structural snapshots remain in memory only.
-
-### State classification
-
-- `AD_PLAYING`: a fresh non-empty tree contains a recognized ad-container Resource ID marker.
-- `SKIP_AVAILABLE`: the same fresh tree contains both a recognized ad-container marker and a clickable node whose Resource ID contains `skip`.
-- `AD_COMPLETED`: a fresh, non-empty tree in the same package follows a prior fresh tree containing a recognized ad-container marker, and the marker is now absent.
-- `UNKNOWN`: missing/empty tree, stale/future timestamp, absent semantic markers, package mismatch, or insufficient evidence.
-
-Recognized ad Resource ID markers are deliberately narrow: `ad_container`, `ad_view`, `interstitial_ad`, and `rewarded_ad`. Generic clickability alone is never evidence of Skip. These are heuristics over app-provided identifiers, not universal ad recognition; unsupported apps will remain UNKNOWN.
+For at most 200 nodes per relevant Accessibility event, the service reads only View class name, Resource ID, clickable flag, and screen bounds. It also records package name, event type, window class and event timestamp. It does not read node text, content descriptions, input values, passwords, screenshots, OCR, gestures, clicks, SDK callbacks or reward state. Snapshots remain in memory only.
 
 ### Strict Safety
 
-P2 is detection-only. It does not call `performAction`, dispatch gestures, click controls, skip/close ads, verify rewards, or interact with ad SDKs. The dashboard forces the displayed state to UNKNOWN when the latest snapshot becomes stale (15 seconds). Disconnect resets the detected state.
+P2.3 remains detection-only. It does not call `performAction`, dispatch gestures, click controls, skip/close ads, verify rewards, or interact with ad SDKs. Snapshots become stale after 15 seconds; disconnect resets monitoring state.
 
-## P1 freshness and lifecycle
+## Device validation
 
-Each in-memory snapshot includes the event-received epoch timestamp. The dashboard formats local event time and calculates age against the current clock. Disconnect/unbind/destroy clears the latest snapshot; reconnect accepts new events.
+CI does not replace physical-device validation. The video supplied for P2.3 shows unrelated System UI/Screen Recorder events interleaved with Fruit Blast events, but does not expose a conclusive SDK Activity signature or semantic ad-container Resource ID for every ad frame. Those frames must remain `UNKNOWN` until supported evidence is actually observed.
