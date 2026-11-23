@@ -14,7 +14,6 @@ import com.kenznguyen.smartadskip.detection.AdState
 import com.kenznguyen.smartadskip.detection.AdStateClassifier
 import java.util.ArrayDeque
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicBoolean
 
 class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val snapshotPolicy = AccessibilitySnapshotPolicy()
@@ -25,7 +24,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val actionExecutionPolicy = ActionExecutionPolicy()
     private val visualActionDetector = VisualActionDetector()
     private val visualActionTemporalVerifier = VisualActionTemporalVerifier()
-    private val screenshotInFlight = AtomicBoolean(false)
+    private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
     private var previousSnapshot: AccessibilitySnapshot? = null
@@ -82,7 +81,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         previousSnapshot = null
         lastActionableUiState = null
         attemptedControlKeys.clear()
-        screenshotInFlight.set(false)
+        screenshotLifecycle.reset()
         visualActionTemporalVerifier.reset()
         temporalPatternAnalyzer.reset()
         AdDetectionRepository.reset()
@@ -90,8 +89,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Screenshot-based recognition is fail-closed on API < 30 and on capture errors.
-     * Frames remain in memory and are recycled after processing.
+     * Screenshot failures are fail-closed. The request token prevents late callbacks
+     * from an old service lifecycle from processing frames or releasing a newer request.
      */
     private fun captureAndAttemptVisualClick(
         snapshot: AccessibilitySnapshot,
@@ -101,53 +100,74 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         if (snapshot.packageName != TARGET_PACKAGE) return
         if (now - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
-        if (!screenshotInFlight.compareAndSet(false, true)) return
+        val requestId = screenshotLifecycle.begin() ?: return
 
         ScreenshotRequestGuard.execute(
             request = {
-            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
-                override fun onSuccess(result: ScreenshotResult) {
-                    try {
-                        val hardwareBitmap = Bitmap.wrapHardwareBuffer(
-                            result.hardwareBuffer,
-                            result.colorSpace
-                        ) ?: return
-                        val bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false)
-                        hardwareBitmap.recycle()
-                        result.hardwareBuffer.close()
-                        try {
-                            val detected = findVisualAction(snapshot, bitmap)
-                            val visualMatch = detected?.second
-                                ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
-                            val confirmedAction = visualActionTemporalVerifier.observe(
-                                visualMatch,
-                                System.currentTimeMillis()
-                            )
-                            if (detected != null && confirmedAction != null) {
-                                val verifiedState = adStateClassifier.classify(
-                                    snapshot, System.currentTimeMillis(), previous,
-                                    hasVerifiedVisualAction = true
-                                )
-                                AdDetectionRepository.publish(verifiedState)
-                                attemptVerifiedLiveClick(snapshot, detected.first, confirmedAction, verifiedState)
+                takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    mainExecutor,
+                    object : TakeScreenshotCallback {
+                        override fun onSuccess(result: ScreenshotResult) {
+                            try {
+                                val bitmap = copyScreenshot(result) ?: return
+                                try {
+                                    if (!screenshotLifecycle.isCurrent(requestId)) return
+                                    val detected = findVisualAction(snapshot, bitmap)
+                                    val visualMatch = detected?.second
+                                        ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
+                                    val confirmedAction = visualActionTemporalVerifier.observe(
+                                        visualMatch,
+                                        System.currentTimeMillis()
+                                    )
+                                    if (detected != null && confirmedAction != null) {
+                                        val verifiedState = adStateClassifier.classify(
+                                            snapshot,
+                                            System.currentTimeMillis(),
+                                            previous,
+                                            hasVerifiedVisualAction = true
+                                        )
+                                        AdDetectionRepository.publish(verifiedState)
+                                        attemptVerifiedLiveClick(
+                                            snapshot,
+                                            detected.first,
+                                            confirmedAction,
+                                            verifiedState
+                                        )
+                                    }
+                                } finally {
+                                    bitmap.recycle()
+                                }
+                            } catch (_: RuntimeException) {
+                                // A failed frame must never reach visual authorization or clicking.
+                            } finally {
+                                screenshotLifecycle.finish(requestId)
                             }
-                        } finally {
-                            bitmap.recycle()
                         }
-                    } catch (_: RuntimeException) {
-                        // Screenshot decoding or processing failure must never trigger a click.
-                    } finally {
-                        screenshotInFlight.set(false)
+
+                        override fun onFailure(errorCode: Int) {
+                            screenshotLifecycle.finish(requestId)
+                        }
                     }
-                }
-    
-                override fun onFailure(errorCode: Int) {
-                    screenshotInFlight.set(false)
-                }
-            })
+                )
             },
-            onFailure = { screenshotInFlight.set(false) }
+            onFailure = { screenshotLifecycle.finish(requestId) }
         )
+    }
+
+    /**
+     * Always close the HardwareBuffer, including when wrapping or copying fails.
+     * The returned software bitmap is owned by the caller.
+     */
+    private fun copyScreenshot(result: ScreenshotResult): Bitmap? {
+        var hardwareBitmap: Bitmap? = null
+        return try {
+            hardwareBitmap = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+            hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+        } finally {
+            hardwareBitmap?.recycle()
+            runCatching { result.hardwareBuffer.close() }
+        }
     }
 
     private fun findVisualAction(
