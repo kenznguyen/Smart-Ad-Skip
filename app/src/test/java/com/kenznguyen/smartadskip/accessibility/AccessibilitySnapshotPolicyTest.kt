@@ -97,7 +97,7 @@ class AccessibilitySnapshotPolicyTest {
             .toSet()
 
         assertTrue(fieldNames.containsAll(
-            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount")
+            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount", "observedAtEpochMillis")
         ))
         assertFalse(fieldNames.any {
             it.contains("text", ignoreCase = true) ||
