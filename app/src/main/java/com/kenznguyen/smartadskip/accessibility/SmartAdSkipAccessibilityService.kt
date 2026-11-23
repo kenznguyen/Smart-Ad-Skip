@@ -11,6 +11,7 @@ import java.util.ArrayDeque
 class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val snapshotPolicy = AccessibilitySnapshotPolicy()
     private val adStateClassifier = AdStateClassifier()
+    private val structuralTransitionAnalyzer = StructuralTransitionAnalyzer()
     private var previousSnapshot: AccessibilitySnapshot? = null
 
     override fun onServiceConnected() {
@@ -27,7 +28,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val nodes = runCatching { collectStructuralNodes(rootInActiveWindow) }
             .getOrDefault(emptyList())
         val now = System.currentTimeMillis()
-        val snapshot = snapshotPolicy.create(
+        val baseSnapshot = snapshotPolicy.create(
             packageName = event.packageName?.toString(),
             eventType = event.eventType,
             windowClassName = event.className,
@@ -35,6 +36,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             clickableNodeCount = nodes.count { it.clickable },
             observedAtEpochMillis = now,
             structuralNodes = nodes
+        )
+        val snapshot = baseSnapshot.copy(
+            structuralTransition = structuralTransitionAnalyzer.analyze(previousSnapshot, baseSnapshot, now)
         )
         val state = adStateClassifier.classify(snapshot, now, previousSnapshot)
         AdDetectionRepository.publish(state)
