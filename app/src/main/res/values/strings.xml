@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Smart Ad Skip</string>
+    <string name="accessibility_service_description">Observes window metadata for Smart Ad Skip. It does not read on-screen text or perform actions.</string>
+</resources>
