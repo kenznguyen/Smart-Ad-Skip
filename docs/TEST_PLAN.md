@@ -26,8 +26,18 @@
 - [x] AD_COMPLETED requires a prior ad marker and a subsequent non-empty tree in the same package.
 - [x] Empty trees, stale snapshots and insufficient evidence resolve to UNKNOWN.
 - [x] No UI action or reward verification is implemented.
-- [ ] Validate classifier behavior against Fruit Blast on a physical device.
-- [ ] Confirm resource-ID markers actually exist in target app; otherwise keep UNKNOWN.
+
+## P2.3 — Multi-signal Detection
+
+- [x] System UI and Screen Recorder package events are marked irrelevant to the Fruit Blast classifier.
+- [x] Exact allowlisted rewarded-ad SDK Activity signatures classify as AD_PLAYING only with a fresh, non-empty tree.
+- [x] A same-package transition from explicit ad evidence to a fresh non-empty host-app tree can classify as AD_COMPLETED.
+- [x] Generic WebView, Button, clickable state and node counts alone remain UNKNOWN.
+- [x] Foreign-package events cannot prove AD_COMPLETED.
+- [x] SKIP_AVAILABLE still requires semantic ad-container and clickable Skip Resource ID evidence in the same tree.
+- [ ] Validate each SDK signature and transition on a physical device.
+- [ ] Confirm actual Fruit Blast ad frames expose one of the allowlisted signatures or semantic Resource IDs; otherwise retain UNKNOWN.
+- [x] No UI action, SDK callback, reward verification, text/OCR/screenshot collection is implemented.
 
 ## Device validation
 
