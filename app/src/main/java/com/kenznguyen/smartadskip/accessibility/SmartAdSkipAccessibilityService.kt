@@ -293,9 +293,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             }
                             try {
                                 if (screenshotLifecycle.isCurrent(requestId)) {
-                                    // OCR classifies text candidates. Pixel classification is used
-                                    // only to discover symbol-only controls when OCR sees no text.
-                                    // Neither OCR nor pixels grant click permission.
+                                    // OCR classifies Close/Dismiss/X candidates. Pixel classification
+                                    // discovers symbol-only X controls only; neither grants click permission.
                                     runOcrFirstCandidateDiscovery(
                                         bitmap = bitmap,
                                         snapshot = snapshot,
@@ -344,10 +343,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * OCR-first candidate discovery. OCR-recognized NEXT_AD/CLOSE labels need no pixel
-     * verification. For NO_TEXT symbol-only >> / X controls, pixel classification discovers
-     * the candidate action. All candidates still require live Accessibility and final
-     * Click Authorization; OCR and pixel classification cannot authorize a click.
+     * OCR-first Close-only candidate discovery. For NO_TEXT symbol-only X controls,
+     * pixel classification discovers the candidate. All candidates still require live
+     * Accessibility and final Click Authorization.
      */
     private fun runOcrFirstCandidateDiscovery(
         bitmap: Bitmap,
@@ -386,7 +384,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         requestId = requestId
                     )
                 } else {
-                    logDeny("candidate", "no_eligible_next_ad_or_close_candidate")
+                    logDeny("candidate", "no_eligible_close_candidate")
                 }
             } catch (error: RuntimeException) {
                 logDeny("candidate_pipeline", "runtime_exception=${error.javaClass.simpleName}")
@@ -409,9 +407,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     )
 
     /**
-     * OCR labels directly identify NEXT_AD/CLOSE candidates. Visual classification is
-     * consulted only for NO_TEXT regions to discover symbol-only >> / X controls.
-     * It is not a mandatory verification gate for OCR-recognized candidates.
+     * OCR labels identify Close/Dismiss/X candidates. Visual classification is consulted
+     * only for NO_TEXT regions to discover a symbol-only X control.
      */
     private fun findOcrFirstCandidate(
         snapshot: AccessibilitySnapshot,
@@ -666,6 +663,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         const val TAG = "SmartAdSkip"
         const val MAX_NODES_PER_EVENT = 200
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
-        val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
+        val APPROVED_ACTIONS = setOf(VisualActionType.CLOSE)
     }
 }
