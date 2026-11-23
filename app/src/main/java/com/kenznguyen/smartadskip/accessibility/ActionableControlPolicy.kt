@@ -26,7 +26,7 @@ class ActionableControlPolicy {
             (tokens.contains("ad") && tokens.contains("container"))
         ) return ActionableControlType.PROTECTED
 
-        if (tokens.any { it in NEXT_AD_TOKENS }) return ActionableControlType.NEXT_AD
+        if (tokens.contains("nextad") || (tokens.contains("next") && tokens.contains("ad"))) return ActionableControlType.NEXT_AD
         if (tokens.any { it in CLOSE_TOKENS }) return ActionableControlType.CLOSE
         if (tokens.any { it in CONTINUE_TOKENS }) return ActionableControlType.CONTINUE
         return ActionableControlType.UNKNOWN
@@ -37,7 +37,6 @@ class ActionableControlPolicy {
             "adview", "advertisement", "install", "download",
             "claim", "collect", "reward", "prize", "sponsored", "store", "purchase"
         )
-        val NEXT_AD_TOKENS = setOf("next_ad", "nextad", "next")
         val CLOSE_TOKENS = setOf("close", "dismiss", "skip")
         val CONTINUE_TOKENS = setOf("continue", "resume")
     }
