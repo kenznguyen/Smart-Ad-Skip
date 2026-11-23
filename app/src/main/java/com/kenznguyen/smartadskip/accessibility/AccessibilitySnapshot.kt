@@ -13,7 +13,27 @@ data class StructuralNodeMetadata(
     val viewClassName: String?,
     val resourceId: String?,
     val clickable: Boolean,
+    val bounds: ScreenBounds,
+    val enabled: Boolean = true,
+    val visible: Boolean = true
+)
+
+data class ActionableNodeCandidate(
+    val resourceId: String?,
+    val viewClassName: String?,
     val bounds: ScreenBounds
+)
+
+enum class ActionableNodeDetectionStatus {
+    DETECTED,
+    NO_ACTIONABLE_NODES,
+    STALE_SNAPSHOT,
+    WRONG_PACKAGE
+}
+
+data class ActionableNodeDiagnostics(
+    val status: ActionableNodeDetectionStatus,
+    val candidates: List<ActionableNodeCandidate> = emptyList()
 )
 
 data class AccessibilitySnapshot(
@@ -26,7 +46,7 @@ data class AccessibilitySnapshot(
     val structuralNodes: List<StructuralNodeMetadata> = emptyList(),
     val structuralTransition: StructuralTransitionDiagnostics? = null,
     val temporalPattern: TemporalPatternDiagnostics? = null,
-    val closeButton: CloseButtonDiagnostics? = null
+    val actionableNodes: ActionableNodeDiagnostics? = null
 )
 
 class AccessibilitySnapshotPolicy {
