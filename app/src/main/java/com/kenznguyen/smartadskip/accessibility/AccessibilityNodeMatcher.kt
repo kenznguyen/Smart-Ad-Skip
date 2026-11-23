@@ -24,7 +24,7 @@ class AccessibilityNodeMatcher {
             val identityMatches = if (detectedLabels.isNotEmpty()) {
                 liveLabels.isNotEmpty() && detectedLabels.any { it in liveLabels }
             } else {
-                liveLabels.isEmpty() && live.childCount == detected.childCount
+                liveLabels.isEmpty()
             }
             if (identityMatches) index to centerDistance(detected.bounds, live.bounds) else null
         }.sortedBy { it.second }
