@@ -178,16 +178,21 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             y = 160
         }
         title.setOnTouchListener(object : View.OnTouchListener {
+            private var startRawX = 0f
             private var startRawY = 0f
+            private var startX = 0
             private var startY = 0
             override fun onTouch(view: View, event: MotionEvent): Boolean {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        startRawX = event.rawX
                         startRawY = event.rawY
+                        startX = params.x
                         startY = params.y
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
+                        params.x = (startX - event.rawX + startRawX).toInt().coerceAtLeast(0)
                         params.y = (startY + event.rawY - startRawY).toInt().coerceAtLeast(0)
                         runCatching { windowManager.updateViewLayout(root, params) }
                         return true
