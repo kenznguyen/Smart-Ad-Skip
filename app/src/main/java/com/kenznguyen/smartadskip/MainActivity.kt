@@ -105,7 +105,7 @@ private fun AccessibilityMonitorScreen() {
                 )
             }
         }
-        Text("Auto click: NEXT_AD / CLOSE / CONTINUE only · Protected and unknown controls are never clicked", style = MaterialTheme.typography.bodySmall)
+        Text("Auto click: NEXT_AD / CLOSE / CONTINUE only · Unknown/rewarded ad contexts are blocked", style = MaterialTheme.typography.bodySmall)
         Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
         val transition = snapshot?.structuralTransition
         if (transition?.comparisonAvailable == true) {
@@ -139,7 +139,7 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
-        Text("Safety: Strict · Allowlisted Accessibility clicks only · No ad/CTA/reward clicks", style = MaterialTheme.typography.bodyMedium)
+        Text("Safety: Strict · No ad-surface, CTA, reward, unknown-context or stale-node clicks", style = MaterialTheme.typography.bodyMedium)
         Text("Text, content descriptions, input values, screenshots and OCR are not collected.", style = MaterialTheme.typography.bodySmall)
     }
 }
