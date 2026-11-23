@@ -33,8 +33,6 @@ class AdStateClassifier(
         if (isKnownAdSdkActivity(current.windowClassName)) {
             return if (hasVerifiedVisualAction) AdState.SKIP_AVAILABLE else AdState.AD_PLAYING
         }
-        if (hasVerifiedVisualAction) return AdState.SKIP_AVAILABLE
-
         if (previous != null &&
             previous.packageName == current.packageName &&
             isRelevantPackage(previous.packageName) &&
