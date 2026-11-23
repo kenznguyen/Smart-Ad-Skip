@@ -100,12 +100,12 @@ private fun AccessibilityMonitorScreen() {
         } else {
             candidates.forEachIndexed { index, candidate ->
                 Text(
-                    "${index + 1}. ${candidate.viewClassName ?: "—"} · ${candidate.resourceId ?: "no resource id"} · bounds=${candidate.bounds}",
+                    "${index + 1}. Visual candidate · bounds=${candidate.bounds}",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
-        Text("Auto click: NEXT_AD / CLOSE / CONTINUE · Active recognized non-rewarded ads only", style = MaterialTheme.typography.bodySmall)
+        Text("Visual actions: NEXT_AD / CLOSE · Strict Safety gated", style = MaterialTheme.typography.bodySmall)
         Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
         val transition = snapshot?.structuralTransition
         if (transition?.comparisonAvailable == true) {
