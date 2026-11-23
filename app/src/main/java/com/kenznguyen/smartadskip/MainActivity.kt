@@ -60,7 +60,7 @@ private fun AccessibilityMonitorScreen() {
     val snapshotAgeSeconds = snapshot?.let {
         (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
     } ?: 0L
-    val snapshotFresh = snapshot != null && snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS
+    val snapshotFresh = snapshot != null && (nowMillis - snapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
     val snapshotFreshness = when {
         snapshot == null -> "Waiting for first event"
         snapshotFresh -> "Fresh · ${snapshotAgeSeconds}s ago"
@@ -152,6 +152,6 @@ private fun AccessibilityMonitorScreen() {
     }
 }
 
-private const val SNAPSHOT_STALE_AFTER_SECONDS = 5L
+private const val SNAPSHOT_STALE_AFTER_MILLIS = 5_000L
 private val EVENT_TIME_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
