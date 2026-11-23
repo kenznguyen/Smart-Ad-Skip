@@ -2,11 +2,25 @@
 
 ## P0 — Foundation
 
-- [ ] GitHub Actions workflow installs JDK 17 and Android SDK 36.
-- [ ] Gradle configuration resolves successfully.
-- [ ] `:app:testDebugUnitTest` passes.
-- [ ] `:app:assembleDebug` produces a debug APK.
+- [x] GitHub Actions workflow installs JDK 17 and Android SDK 36.
+- [x] Gradle configuration resolves successfully.
+- [x] `:app:testDebugUnitTest` passes.
+- [x] `:app:assembleDebug` produces a debug APK.
 - [ ] APK launches on an Android API 26+ device.
+
+## P1 — Accessibility Monitor
+
+- [x] Snapshot preserves only approved window metadata.
+- [x] Blank package and window class names are normalized to null.
+- [x] Node counts are clamped to 0–200.
+- [x] Clickable node count cannot exceed total node count.
+- [x] Snapshot model contains no UI text or input-value fields.
+- [x] Service is declared with the Android accessibility binding permission.
+- [x] Service only observes window state/windows/content-change events.
+- [x] Dashboard exposes service connection and latest metadata.
+- [x] No automatic Skip/Close action is implemented.
+- [ ] Enable service and validate event delivery on a physical Android device.
+- [ ] Validate service disconnect/reconnect behavior on the target device.
 
 ## Planned detection and safety tests
 
