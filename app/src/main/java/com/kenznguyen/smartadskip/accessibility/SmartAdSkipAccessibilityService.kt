@@ -24,6 +24,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val actionableNodeDetector = ActionableNodeDetector()
     private val actionExecutionPolicy = ActionExecutionPolicy()
     private val visualActionDetector = VisualActionDetector()
+    private val visualActionTemporalVerifier = VisualActionTemporalVerifier()
     private val screenshotInFlight = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
@@ -82,6 +83,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         lastActionableUiState = null
         attemptedControlKeys.clear()
         screenshotInFlight.set(false)
+        visualActionTemporalVerifier.reset()
         temporalPatternAnalyzer.reset()
         AdDetectionRepository.reset()
         AccessibilityMonitorRepository.setConnected(false)
@@ -113,13 +115,19 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     result.hardwareBuffer.close()
                     try {
                         val detected = findVisualAction(snapshot, bitmap)
-                        if (detected != null) {
+                        val visualMatch = detected?.second
+                            ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
+                        val confirmedAction = visualActionTemporalVerifier.observe(
+                            visualMatch,
+                            System.currentTimeMillis()
+                        )
+                        if (detected != null && confirmedAction != null) {
                             val verifiedState = adStateClassifier.classify(
                                 snapshot, System.currentTimeMillis(), previous,
                                 hasVerifiedVisualAction = true
                             )
                             AdDetectionRepository.publish(verifiedState)
-                            attemptVerifiedLiveClick(snapshot, detected.first, detected.second, verifiedState)
+                            attemptVerifiedLiveClick(snapshot, detected.first, confirmedAction, verifiedState)
                         }
                     } finally {
                         bitmap.recycle()
@@ -140,7 +148,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private fun findVisualAction(
         snapshot: AccessibilitySnapshot,
         bitmap: Bitmap
-    ): Pair<ScreenBounds, VisualActionType>? {
+    ): Pair<ScreenBounds, VisualActionMatch>? {
         val candidates = snapshot.structuralNodes
             .asSequence()
             .filter { it.clickable && it.enabled && it.visible && it.bounds.hasArea }
@@ -157,7 +165,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 crop.getPixels(pixels, 0, crop.width, 0, 0, crop.width, crop.height)
                 val match = visualActionDetector.detect(VisualFrame(crop.width, crop.height, pixels))
                 if (match.type == VisualActionType.UNKNOWN) null
-                else Triple(candidate.bounds, match.type, match.confidence)
+                else Triple(candidate.bounds, match, match.confidence)
             } finally {
                 crop.recycle()
             }
