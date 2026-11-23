@@ -389,7 +389,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             return
         }
 
-        textRecognizer.process(image)
+        val recognitionTask = runCatching { textRecognizer.process(image) }.getOrElse {
+            bitmap.recycle()
+            screenshotLifecycle.finish(requestId)
+            return
+        }
+        recognitionTask
             .addOnSuccessListener(mainExecutor) { result ->
                 try {
                     if (!screenshotLifecycle.isCurrent(requestId)) return@addOnSuccessListener
