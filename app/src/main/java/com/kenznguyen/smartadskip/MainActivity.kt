@@ -48,29 +48,30 @@ private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
+    val currentSnapshot = snapshot
     val adState by AdDetectionRepository.state.collectAsState()
     val overlayRequested by OverlayRequestRepository.requested.collectAsState()
-    val nowMillis by produceState(initialValue = System.currentTimeMillis(), snapshot?.observedAtEpochMillis) {
+    val nowMillis by produceState(initialValue = System.currentTimeMillis(), currentSnapshot?.observedAtEpochMillis) {
         while (true) {
             value = System.currentTimeMillis()
             delay(1_000)
         }
     }
-    val snapshotAgeSeconds = snapshot?.let {
+    val snapshotAgeSeconds = currentSnapshot?.let {
         (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
     }
-    val snapshotFresh = snapshot != null &&
+    val snapshotFresh = currentSnapshot != null &&
         (nowMillis - snapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
     val displayedAdState = if (snapshotFresh) adState.name else "UNKNOWN"
     val snapshotFreshness = when {
-        snapshot == null -> "Waiting for first event"
+        currentSnapshot == null -> "Waiting for first event"
         snapshotFresh -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
-    val observedAt = snapshot?.let {
+    val observedAt = currentSnapshot?.let {
         EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(it.observedAtEpochMillis))
     } ?: "—"
-    val actionable = snapshot?.actionableNodes
+    val actionable = currentSnapshot?.actionableNodes
     val detectionStatus = when {
         !isConnected -> "ACCESSIBILITY DISCONNECTED"
         !snapshotFresh -> "STALE_SNAPSHOT"
@@ -104,7 +105,7 @@ private fun AccessibilityMonitorScreen() {
         )
 
         Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
-        Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Latest observed package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot freshness: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
 
