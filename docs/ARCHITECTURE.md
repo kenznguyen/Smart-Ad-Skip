@@ -70,3 +70,14 @@ CI does not replace physical-device validation. The video supplied for P2.3 show
 - The only dispatched operation is Accessibility `ACTION_CLICK` on the uniquely matched live node. Coordinate taps are prohibited.
 - Protected commercial/reward labels and ambiguous text fail closed. Structured `click_denied stage=... reason=...` logs remain available for diagnosing rejected candidates and authorization.
 - CI is necessary but not sufficient; real-device Fruit Blast validation remains required before merge.
+
+
+## P2.18 — Floating Overlay Upgrade
+
+- The overlay remains opt-in and is shown only while the Accessibility service is connected.
+- Collapsed mode is the default and presents a compact floating chip; tapping it opens the status panel.
+- The panel exposes monitor connection, ad state, observed package, Close-only scope and Strict Safety authorization status. It does not provide an alternate click path.
+- The header supports drag movement. On release, the overlay snaps to the nearest horizontal display edge and its position is persisted.
+- Restored coordinates are clamped to the available display area. The expanded panel can be minimized or hidden; hiding clears the explicit overlay request.
+- Overlay rendering and controls do not modify candidate detection, Freshness Guard, live Accessibility revalidation, Click Authorization, one-attempt guard or Accessibility ACTION_CLICK.
+- Unit tests cover position clamping and nearest-edge selection. Physical-device testing is required for touch behavior, screen insets, rotation, persistence and non-obstruction of Fruit Blast controls.
