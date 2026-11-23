@@ -49,3 +49,13 @@ CI does not replace physical-device validation. The video supplied for P2.3 show
 - P2.7 two-frame temporal verification, exact package check, 15-second freshness limit, live Accessibility node/bounds revalidation, enabled/visible/clickable checks, one-attempt-per-control-state behavior, and Accessibility `ACTION_CLICK` remain required.
 - `CONTINUE`, OCR, coordinate taps, screenshot persistence, SDK hooks, reward/impression spoofing, and target-app modification remain out of scope.
 - CI validates logic and compilation only. Real-device validation is still required to confirm Fruit Blast exposes a supported ad-context signal and that the visual regions align with live Accessibility nodes. If the context signal is unavailable or ambiguous, the service must remain fail-closed.
+
+
+## P2.16 — OCR candidate discovery without mandatory Visual Verification
+
+- OCR directly classifies recognized `Next`/`Skip` and `Close`/`Dismiss` labels as candidate actions; pixel matching is not a mandatory second gate for these labels.
+- Protected labels (Install, Download, Buy, Purchase, Claim, Collect, Reward, Shop, Sponsored, Continue, Open, Visit, Subscribe and protected CTA phrases) and ambiguous recognized text are rejected.
+- When OCR finds no text, the pixel classifier may discover symbol-only `>>` or `X` candidates. This is candidate discovery only, not click authorization.
+- OCR and pixel classification never grant permission to click. The final path still requires exact target package, fresh snapshot, unique live Accessibility node re-identification, visible/enabled/clickable checks, approved `NEXT_AD`/`CLOSE` action, non-completed ad context, and one-attempt-per-state.
+- The service logs structured deny reasons with stage and reason (capture, OCR, candidate policy, package, freshness, live Accessibility, one-attempt guard, Click Authorization, and ACTION_CLICK result) under the `SmartAdSkip` tag.
+- Bounds may shift between snapshot and live lookup; they are used only to disambiguate equivalent nodes, never for coordinate taps. Ambiguous node matches fail closed.
