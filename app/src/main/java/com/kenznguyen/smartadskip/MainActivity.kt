@@ -60,6 +60,9 @@ private fun AccessibilityMonitorScreen() {
         snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
+    val displayedAdState = if (
+        snapshot == null || snapshotAgeSeconds > SNAPSHOT_STALE_AFTER_SECONDS
+    ) "UNKNOWN" else adState.name
     val observedAt = snapshot?.let {
         EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(it.observedAtEpochMillis))
     } ?: "—"
@@ -76,7 +79,7 @@ private fun AccessibilityMonitorScreen() {
         }) {
             Text("Open Accessibility Settings")
         }
-        Text("Detected ad state: ${adState.name}", style = MaterialTheme.typography.bodyLarge)
+        Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
         Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Window class: ${snapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Event type: ${snapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
