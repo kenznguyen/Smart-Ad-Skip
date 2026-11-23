@@ -12,12 +12,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val snapshotPolicy = AccessibilitySnapshotPolicy()
     private val adStateClassifier = AdStateClassifier()
     private val structuralTransitionAnalyzer = StructuralTransitionAnalyzer()
+    private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
     private var previousSnapshot: AccessibilitySnapshot? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        previousSnapshot = null
-        AdDetectionRepository.reset()
+        resetMonitoringState()
         AccessibilityMonitorRepository.setConnected(true)
     }
 
@@ -38,7 +38,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             structuralNodes = nodes
         )
         val snapshot = baseSnapshot.copy(
-            structuralTransition = structuralTransitionAnalyzer.analyze(previousSnapshot, baseSnapshot, now)
+            structuralTransition = structuralTransitionAnalyzer.analyze(previousSnapshot, baseSnapshot, now),
+            temporalPattern = temporalPatternAnalyzer.record(baseSnapshot)
         )
         val state = adStateClassifier.classify(snapshot, now, previousSnapshot)
         AdDetectionRepository.publish(state)
@@ -60,6 +61,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     private fun resetMonitoringState() {
         previousSnapshot = null
+        temporalPatternAnalyzer.reset()
         AdDetectionRepository.reset()
         AccessibilityMonitorRepository.setConnected(false)
     }
