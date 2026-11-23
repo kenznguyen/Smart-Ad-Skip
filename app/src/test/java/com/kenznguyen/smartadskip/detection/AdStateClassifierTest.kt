@@ -13,14 +13,14 @@ class AdStateClassifierTest {
     @Test
     fun visualActionAloneCannotEstablishAdContext() {
         val current = snapshot(nodes = listOf(node(null, clickable = true)))
-        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasVerifiedVisualAction = true))
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasDetectedAction = true))
     }
 
     @Test
     fun verifiedVisualActionIsAllowedOnlyInsideKnownAdSdkActivity() {
         val current = snapshot(nodes = listOf(node(null, clickable = true)))
             .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
-        assertEquals(AdState.SKIP_AVAILABLE, classifier.classify(current, now, hasVerifiedVisualAction = true))
+        assertEquals(AdState.SKIP_AVAILABLE, classifier.classify(current, now, hasDetectedAction = true))
     }
 
     @Test
@@ -53,18 +53,18 @@ class AdStateClassifierTest {
     @Test
     fun staleSnapshotRemainsUnknownEvenWithVisualAction() {
         val current = snapshot(nodes = listOf(node(null)), timestamp = now - 16_000L)
-        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasVerifiedVisualAction = true))
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasDetectedAction = true))
     }
 
     @Test
     fun wrongPackageRemainsUnknown() {
         val current = snapshot(packageName = "com.other.app", nodes = listOf(node(null)))
-        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasVerifiedVisualAction = true))
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasDetectedAction = true))
     }
 
     @Test
     fun emptyTreeDoesNotEstablishAdContext() {
-        assertEquals(AdState.UNKNOWN, classifier.classify(snapshot(nodes = emptyList()), now, hasVerifiedVisualAction = true))
+        assertEquals(AdState.UNKNOWN, classifier.classify(snapshot(nodes = emptyList()), now, hasDetectedAction = true))
     }
 
     @Test
