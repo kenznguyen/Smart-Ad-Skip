@@ -9,10 +9,10 @@ class ActionExecutionPolicyTest {
     private val policy = ActionExecutionPolicy()
 
     @Test
-    fun permitsKnownNonRewardedAdStates() {
-        assertTrue(policy.canClick(AdState.AD_PLAYING, "GameActivity", null))
-        assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, "GameActivity", null))
-        assertTrue(policy.canClick(AdState.AD_COMPLETED, "GameActivity", "InterstitialActivity"))
+    fun permitsClicksOnlyWhileRecognizedAdIsActive() {
+        assertTrue(policy.canClick(AdState.AD_PLAYING, "GameAdActivity", null))
+        assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, "GameAdActivity", null))
+        assertFalse(policy.canClick(AdState.AD_COMPLETED, "GameActivity", "InterstitialActivity"))
     }
 
     @Test
@@ -32,11 +32,11 @@ class ActionExecutionPolicyTest {
     }
 
     @Test
-    fun rejectsCompletionImmediatelyAfterKnownRewardedActivity() {
+    fun rejectsTransitionImmediatelyAfterKnownRewardedActivity() {
         assertFalse(
             policy.canClick(
-                AdState.AD_COMPLETED,
-                "GameActivity",
+                AdState.SKIP_AVAILABLE,
+                "GameAdActivity",
                 "com.mbridge.msdk.reward.player.MBRewardVideoActivity"
             )
         )
