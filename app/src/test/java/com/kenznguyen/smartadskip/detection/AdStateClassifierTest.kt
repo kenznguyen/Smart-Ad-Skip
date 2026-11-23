@@ -86,6 +86,48 @@ class AdStateClassifierTest {
         assertEquals(AdState.UNKNOWN, classifier.classify(current, now, previous))
     }
 
+
+    @Test
+    fun mbridgeRewardVideoActivityWithFreshNonEmptyTreeIsAdPlaying() {
+        val current = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(node("miui.systemui.plugin.id/header_carrier_view")),
+        ).copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+
+        assertEquals(AdState.AD_PLAYING, classifier.classify(current, now))
+    }
+
+    @Test
+    fun mbridgeRewardVideoActivityWithStaleSnapshotRemainsUnknown() {
+        val current = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(node("miui.systemui.plugin.id/header_carrier_view")),
+            timestamp = now - 16_000L
+        ).copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
+    }
+
+    @Test
+    fun mbridgeActivityWithoutStructuralNodesRemainsUnknown() {
+        val current = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = emptyList()
+        ).copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
+    }
+
+    @Test
+    fun unrelatedWindowClassDoesNotTriggerMbridgeDetection() {
+        val current = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(node("miui.systemui.plugin.id/header_carrier_view"))
+        ).copy(windowClassName = "com.example.GameActivity")
+
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
+    }
+
     private fun snapshot(
         packageName: String = "com.game",
         nodes: List<StructuralNodeMetadata>,
