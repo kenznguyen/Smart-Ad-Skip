@@ -3,8 +3,8 @@ package com.kenznguyen.smartadskip.accessibility
 import com.kenznguyen.smartadskip.detection.AdState
 
 /**
- * Prevents automatic interaction when the ad context is unknown or a known rewarded
- * video activity is active/has just transitioned away.
+ * Allows clicks only while a recognized ad is actively on screen.
+ * Unknown/completed contexts and known rewarded-video activities are blocked.
  */
 class ActionExecutionPolicy {
     fun canClick(
@@ -12,12 +12,9 @@ class ActionExecutionPolicy {
         currentWindowClassName: String?,
         previousWindowClassName: String?
     ): Boolean {
-        if (adState == AdState.UNKNOWN) return false
+        if (adState !in setOf(AdState.AD_PLAYING, AdState.SKIP_AVAILABLE)) return false
         if (currentWindowClassName in REWARDED_AD_ACTIVITY_CLASSES) return false
-        if (
-            adState == AdState.AD_COMPLETED &&
-            previousWindowClassName in REWARDED_AD_ACTIVITY_CLASSES
-        ) return false
+        if (previousWindowClassName in REWARDED_AD_ACTIVITY_CLASSES) return false
         return true
     }
 
