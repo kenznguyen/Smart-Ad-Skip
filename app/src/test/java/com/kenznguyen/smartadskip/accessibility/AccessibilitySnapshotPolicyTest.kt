@@ -108,6 +108,32 @@ class AccessibilitySnapshotPolicyTest {
     }
 
     @Test
+    fun diagnosticNodes_returnsAtMostTwentyStructuralEntriesInOriginalOrder() {
+        val nodes = (1..35).map {
+            StructuralNodeMetadata(
+                viewClassName = "android.widget.FrameLayout",
+                resourceId = "com.example:id/node_$it",
+                clickable = it % 2 == 0,
+                bounds = ScreenBounds(0, 0, 10, 10)
+            )
+        }
+        val snapshot = policy.create(
+            packageName = "com.example.game",
+            eventType = 1,
+            windowClassName = null,
+            nodeCount = 35,
+            clickableNodeCount = 17,
+            structuralNodes = nodes
+        )
+
+        val diagnostics = policy.diagnosticNodes(snapshot)
+
+        assertEquals(20, diagnostics.size)
+        assertEquals("com.example:id/node_1", diagnostics.first().resourceId)
+        assertEquals("com.example:id/node_20", diagnostics.last().resourceId)
+    }
+
+    @Test
     fun create_neverExposesUiTextOrInputValues() {
         val snapshot = policy.create(
             packageName = "com.example.game",
