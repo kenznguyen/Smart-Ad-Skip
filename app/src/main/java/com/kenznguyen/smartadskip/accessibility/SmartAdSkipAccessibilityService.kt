@@ -99,7 +99,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         if (snapshot.packageName != TARGET_PACKAGE) return
-        if (now - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
+        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, now)) return
         val requestId = screenshotLifecycle.begin() ?: return
 
         ScreenshotRequestGuard.execute(
@@ -206,7 +206,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         adState: AdState
     ) {
         if (snapshot.packageName != TARGET_PACKAGE) return
-        if (System.currentTimeMillis() - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
+        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())) return
         if (type !in APPROVED_VISUAL_ACTIONS) return
         if (!actionExecutionPolicy.canClick(adState)) return
 
@@ -287,7 +287,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val MAX_NODES_PER_EVENT = 200
-        const val MAX_SNAPSHOT_AGE_MILLIS = 15_000L
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         val APPROVED_VISUAL_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
     }
