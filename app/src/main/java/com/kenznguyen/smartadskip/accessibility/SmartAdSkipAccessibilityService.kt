@@ -52,7 +52,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var overlayRoot: LinearLayout? = null
     private var overlayStatus: TextView? = null
     private var overlayDetails: LinearLayout? = null
-    private var overlayLayoutParams: WindowManager.LayoutParams? = null
     private var overlayCollapsed = false
 
     override fun onServiceConnected() {
@@ -110,6 +109,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        removeOverlay()
         resetMonitoringState()
         return super.onUnbind(intent)
     }
@@ -150,9 +150,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             addView(Button(this@SmartAdSkipAccessibilityService).apply {
                 text = "Collapse"
                 setOnClickListener {
-                    overlayCollapsed = true
-                    details.visibility = View.GONE
-                    (it as Button).text = "Expand"
+                    overlayCollapsed = !overlayCollapsed
+                    details.visibility = if (overlayCollapsed) View.GONE else View.VISIBLE
+                    text = if (overlayCollapsed) "Expand" else "Collapse"
                 }
             })
             addView(Button(this@SmartAdSkipAccessibilityService).apply {
@@ -200,13 +200,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             overlayRoot = root
             overlayStatus = status
             overlayDetails = details
-            overlayLayoutParams = params
             overlayCollapsed = false
         } catch (_: RuntimeException) {
             overlayRoot = null
             overlayStatus = null
             overlayDetails = null
-            overlayLayoutParams = null
         }
     }
 
