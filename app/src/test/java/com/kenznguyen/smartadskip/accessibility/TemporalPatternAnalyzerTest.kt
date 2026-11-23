@@ -34,7 +34,7 @@ class TemporalPatternAnalyzerTest {
     }
 
     @Test
-    fun resetsHistoryForStaleOrNonAdvancingSnapshots() {
+    fun startsNewHistoryAfterStaleSnapshot() {
         analyzer.record(snapshot("A", start))
         val result = analyzer.record(snapshot("B", start + 20_000))
 
@@ -42,6 +42,25 @@ class TemporalPatternAnalyzerTest {
         assertEquals(1, result.sampleCount)
         assertEquals(0, result.windowTransitionCount)
         assertEquals(0L, result.observedSpanMillis)
+    }
+
+    @Test
+    fun rejectsNonAdvancingTimestampAndClearsHistory() {
+        analyzer.record(snapshot("A", start))
+        val result = analyzer.record(snapshot("B", start))
+
+        assertFalse(result.historyAvailable)
+        assertEquals(0, result.sampleCount)
+        assertEquals(0L, result.observedSpanMillis)
+    }
+
+    @Test
+    fun rejectsZeroTimestampAndClearsHistory() {
+        analyzer.record(snapshot("A", start))
+        val result = analyzer.record(snapshot("B", 0L))
+
+        assertFalse(result.historyAvailable)
+        assertEquals(0, result.sampleCount)
     }
 
     @Test
