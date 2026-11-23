@@ -165,7 +165,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             hardwareBitmap = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
             hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
         } finally {
-            hardwareBitmap?.recycle()
+            runCatching { hardwareBitmap?.recycle() }
             runCatching { result.hardwareBuffer.close() }
         }
     }
