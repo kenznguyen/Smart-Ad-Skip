@@ -18,16 +18,17 @@ class OcrActionPolicyTest {
     fun recognizesCloseAndDismissLabelsAsCloseHints() {
         assertEquals(OcrActionHint.CLOSE, policy.analyze("Close"))
         assertEquals(OcrActionHint.CLOSE, policy.analyze("Dismiss"))
+        assertEquals(OcrActionHint.CLOSE, policy.analyze("X"))
     }
 
     @Test
     fun marksProtectedCommercialAndRewardLabelsAsProtected() {
-        listOf("Install", "Download", "Buy now", "Purchase", "Claim reward", "Collect")
+        listOf("Install", "Download", "Buy now", "Purchase", "Claim reward", "Collect", "Continue", "Subscribe", "Sign up")
             .forEach { assertEquals(it, OcrActionHint.PROTECTED, policy.analyze(it)) }
     }
 
     @Test
-    fun treatsMissingOrUnrecognizedTextAsNeutralHint() {
+    fun treatsMissingTextAsNeutralAndUnrecognizedTextAsAmbiguous() {
         assertEquals(OcrActionHint.NO_TEXT, policy.analyze(""))
         assertEquals(OcrActionHint.AMBIGUOUS, policy.analyze("limited time offer"))
     }
