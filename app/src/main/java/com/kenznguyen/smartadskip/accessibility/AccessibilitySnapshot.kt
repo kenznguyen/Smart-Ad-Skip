@@ -15,7 +15,10 @@ data class StructuralNodeMetadata(
     val clickable: Boolean,
     val bounds: ScreenBounds,
     val enabled: Boolean = true,
-    val visible: Boolean = true
+    val visible: Boolean = true,
+    val text: String? = null,
+    val contentDescription: String? = null,
+    val childCount: Int = 0
 )
 
 data class ActionableNodeCandidate(
@@ -63,7 +66,10 @@ class AccessibilitySnapshotPolicy {
             .map { node ->
                 node.copy(
                     viewClassName = node.viewClassName?.trim()?.takeIf(String::isNotEmpty),
-                    resourceId = node.resourceId?.trim()?.takeIf(String::isNotEmpty)
+                    resourceId = node.resourceId?.trim()?.takeIf(String::isNotEmpty),
+                    text = node.text?.trim()?.takeIf(String::isNotEmpty),
+                    contentDescription = node.contentDescription?.trim()?.takeIf(String::isNotEmpty),
+                    childCount = node.childCount.coerceAtLeast(0)
                 )
             }
         return AccessibilitySnapshot(
