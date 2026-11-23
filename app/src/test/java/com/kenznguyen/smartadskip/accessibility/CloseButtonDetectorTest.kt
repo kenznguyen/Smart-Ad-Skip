@@ -1,96 +1,95 @@
 package com.kenznguyen.smartadskip.accessibility
 
-import com.kenznguyen.smartadskip.detection.AdState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class CloseButtonDetectorTest {
-    private val detector = CloseButtonDetector()
+class ActionableNodeDetectorTest {
+    private val detector = ActionableNodeDetector()
     private val now = 1_800_000_000_000L
 
     @Test
-    fun detectsSingleClickableCloseControlOnlyAfterAdCompleted() {
-        val previous = snapshot(now - 1_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(now, listOf(node("com.game:id/btn_close", clickable = true)))
+    fun detectsClickableEnabledVisibleNodeWithoutAdCompletionDependency() {
+        val current = snapshot(
+            now,
+            listOf(node("com.game:id/next_ad", clickable = true, enabled = true, visible = true))
+        )
 
-        val result = detector.detect(current, previous, AdState.AD_COMPLETED, now)
+        val result = detector.detect(current, now)
 
-        assertEquals(CloseButtonDetectionStatus.DETECTED, result.status)
-        assertEquals("com.game:id/btn_close", result.candidate?.resourceId)
-        assertEquals(ScreenBounds(10, 20, 60, 70), result.candidate?.bounds)
+        assertEquals(ActionableNodeDetectionStatus.DETECTED, result.status)
+        assertEquals(1, result.candidates.size)
+        assertEquals("com.game:id/next_ad", result.candidates.single().resourceId)
     }
 
     @Test
-    fun doesNotDetectCloseControlWhileAdIsStillPlaying() {
-        val previous = snapshot(now - 1_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(now, listOf(node("com.game:id/btn_close", clickable = true)))
+    fun detectsGenericClickableNodesWithoutSemanticResourceIds() {
+        val current = snapshot(now, listOf(node(null, clickable = true, enabled = true, visible = true)))
 
-        val result = detector.detect(current, previous, AdState.AD_PLAYING, now)
+        val result = detector.detect(current, now)
 
-        assertEquals(CloseButtonDetectionStatus.AD_NOT_COMPLETED, result.status)
-        assertNull(result.candidate)
+        assertEquals(ActionableNodeDetectionStatus.DETECTED, result.status)
+        assertEquals(1, result.candidates.size)
     }
 
     @Test
-    fun doesNotTreatNonClickableCloseViewAsCloseButton() {
-        val previous = snapshot(now - 1_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(now, listOf(node("com.game:id/btn_close")))
+    fun returnsAllActionableNodesInsteadOfRequiringOneUniqueCloseButton() {
+        val current = snapshot(
+            now,
+            listOf(
+                node("com.game:id/next_ad", clickable = true, enabled = true, visible = true),
+                node("com.game:id/close", clickable = true, enabled = true, visible = true)
+            )
+        )
 
-        val result = detector.detect(current, previous, AdState.AD_COMPLETED, now)
+        val result = detector.detect(current, now)
 
-        assertEquals(CloseButtonDetectionStatus.NO_UNIQUE_CLOSE_CONTROL, result.status)
-        assertNull(result.candidate)
+        assertEquals(2, result.candidates.size)
     }
 
     @Test
-    fun doesNotInferCloseButtonFromGenericClickableNode() {
-        val previous = snapshot(now - 1_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(now, listOf(node("com.game:id/button", clickable = true)))
-
-        val result = detector.detect(current, previous, AdState.AD_COMPLETED, now)
-
-        assertEquals(CloseButtonDetectionStatus.NO_UNIQUE_CLOSE_CONTROL, result.status)
-        assertNull(result.candidate)
+    fun rejectsNonClickableNodes() {
+        val result = detector.detect(snapshot(now, listOf(node("id", false, true, true))), now)
+        assertEquals(ActionableNodeDetectionStatus.NO_ACTIONABLE_NODES, result.status)
+        assertTrue(result.candidates.isEmpty())
     }
 
     @Test
-    fun rejectsStaleCurrentSnapshot() {
-        val previous = snapshot(now - 2_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(now - 16_000L, listOf(node("com.game:id/close", clickable = true)))
+    fun rejectsDisabledNodes() {
+        val result = detector.detect(snapshot(now, listOf(node("id", true, false, true))), now)
+        assertEquals(ActionableNodeDetectionStatus.NO_ACTIONABLE_NODES, result.status)
+    }
 
-        val result = detector.detect(current, previous, AdState.AD_COMPLETED, now)
+    @Test
+    fun rejectsInvisibleNodes() {
+        val result = detector.detect(snapshot(now, listOf(node("id", true, true, false))), now)
+        assertEquals(ActionableNodeDetectionStatus.NO_ACTIONABLE_NODES, result.status)
+    }
 
-        assertEquals(CloseButtonDetectionStatus.STALE_SNAPSHOT, result.status)
-        assertNull(result.candidate)
+    @Test
+    fun rejectsNodesWithoutValidBounds() {
+        val invalid = node("id", true, true, true).copy(bounds = ScreenBounds(10, 10, 10, 20))
+        val result = detector.detect(snapshot(now, listOf(invalid)), now)
+        assertEquals(ActionableNodeDetectionStatus.NO_ACTIONABLE_NODES, result.status)
+    }
+
+    @Test
+    fun rejectsStaleSnapshot() {
+        val result = detector.detect(
+            snapshot(now - 16_000L, listOf(node("id", true, true, true))),
+            now
+        )
+        assertEquals(ActionableNodeDetectionStatus.STALE_SNAPSHOT, result.status)
+        assertTrue(result.candidates.isEmpty())
     }
 
     @Test
     fun rejectsWrongPackage() {
-        val previous = snapshot(now - 1_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(now, listOf(node("com.other:id/close", clickable = true)), "com.other.app")
-
-        val result = detector.detect(current, previous, AdState.AD_COMPLETED, now)
-
-        assertEquals(CloseButtonDetectionStatus.WRONG_PACKAGE, result.status)
-        assertNull(result.candidate)
-    }
-
-    @Test
-    fun rejectsAmbiguousMultipleCloseControls() {
-        val previous = snapshot(now - 1_000L, listOf(node("com.game:id/ad_container")))
-        val current = snapshot(
-            now,
-            listOf(
-                node("com.game:id/close_button", clickable = true),
-                node("com.game:id/ad_dismiss", clickable = true)
-            )
+        val result = detector.detect(
+            snapshot(now, listOf(node("id", true, true, true)), "com.other.app"),
+            now
         )
-
-        val result = detector.detect(current, previous, AdState.AD_COMPLETED, now)
-
-        assertEquals(CloseButtonDetectionStatus.NO_UNIQUE_CLOSE_CONTROL, result.status)
-        assertNull(result.candidate)
+        assertEquals(ActionableNodeDetectionStatus.WRONG_PACKAGE, result.status)
     }
 
     private fun snapshot(
@@ -107,11 +106,17 @@ class CloseButtonDetectorTest {
         structuralNodes = nodes
     )
 
-    private fun node(resourceId: String, clickable: Boolean = false) =
-        StructuralNodeMetadata(
-            viewClassName = "android.widget.ImageButton",
-            resourceId = resourceId,
-            clickable = clickable,
-            bounds = ScreenBounds(10, 20, 60, 70)
-        )
+    private fun node(
+        resourceId: String?,
+        clickable: Boolean,
+        enabled: Boolean,
+        visible: Boolean
+    ) = StructuralNodeMetadata(
+        viewClassName = "android.widget.ImageButton",
+        resourceId = resourceId,
+        clickable = clickable,
+        bounds = ScreenBounds(10, 20, 60, 70),
+        enabled = enabled,
+        visible = visible
+    )
 }
