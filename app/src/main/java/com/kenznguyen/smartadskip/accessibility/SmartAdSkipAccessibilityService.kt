@@ -59,7 +59,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var overlayRoot: LinearLayout? = null
     private var overlayStatus: TextView? = null
-    private var overlayCollapsed = false
+    private var overlayDetails: LinearLayout? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
+    private var overlayWindowManager: WindowManager? = null
+    private var overlayCollapsed = true
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -138,49 +141,60 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private fun showOverlay() {
         if (overlayRoot != null) return
         val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val preferences = getSharedPreferences("floating_overlay", MODE_PRIVATE)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16, 12, 16, 12)
+            setPadding(12, 8, 12, 8)
             background = GradientDrawable().apply {
-                setColor(Color.argb(235, 28, 32, 38))
-                cornerRadius = 18f
+                setColor(Color.argb(238, 28, 32, 38))
+                cornerRadius = 24f
             }
         }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val title = TextView(this).apply {
-            text = "SMART AD SKIP  ·  DRAG"
-            setTextColor(Color.WHITE)
-            textSize = 13f
-            setPadding(4, 12, 8, 12)
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val title = TextView(this).apply {
+            text = "SMART AD SKIP"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setPadding(8, 10, 12, 10)
+            isClickable = true
+        }
+        val expandButton = Button(this).apply {
+            text = "Open"
+            setOnClickListener { setOverlayCollapsed(false) }
+        }
+        val details = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(6, 2, 6, 4)
+        }
         val status = TextView(this).apply {
-            text = "Monitor: CONNECTED\nAd state: UNKNOWN"
+            text = "Monitor: CONNECTED\\nAd state: UNKNOWN\\nClose detection: CLOSE only\\nClick authorization: Strict Safety"
             setTextColor(Color.WHITE)
             textSize = 12f
             setPadding(4, 4, 4, 8)
         }
-        val collapseButton = Button(this).apply {
-            text = "Collapse"
-            setOnClickListener {
-                overlayCollapsed = !overlayCollapsed
-                details.visibility = if (overlayCollapsed) View.GONE else View.VISIBLE
-                text = if (overlayCollapsed) "Expand" else "Collapse"
-            }
-        }
-        val actions = LinearLayout(this).apply {
+        val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(Button(this@SmartAdSkipAccessibilityService).apply {
-                text = "Close"
-                setOnClickListener { OverlayRequestRepository.setRequested(false) }
-            })
         }
+        controls.addView(Button(this@SmartAdSkipAccessibilityService).apply {
+            text = "Minimize"
+            setOnClickListener { setOverlayCollapsed(true) }
+        })
+        controls.addView(Button(this@SmartAdSkipAccessibilityService).apply {
+            text = "Hide"
+            setOnClickListener { OverlayRequestRepository.setRequested(false) }
+        })
         header.addView(title)
-        header.addView(collapseButton)
+        header.addView(expandButton)
         details.addView(status)
-        details.addView(actions)
+        details.addView(controls)
         root.addView(header)
         root.addView(details)
+
+        val metrics = resources.displayMetrics
+        val maxX = (metrics.widthPixels - 220).coerceAtLeast(0)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -188,31 +202,53 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 16
-            y = 160
+            gravity = Gravity.TOP or Gravity.START
+            x = preferences.getInt("x", maxX)
+            y = preferences.getInt("y", 160).coerceAtLeast(0)
         }
         title.setOnTouchListener(object : View.OnTouchListener {
-            private var startRawX = 0f
-            private var startRawY = 0f
-            private var startX = 0
-            private var startY = 0
+            private var rawStartX = 0f
+            private var rawStartY = 0f
+            private var initialX = 0
+            private var initialY = 0
+            private var moved = false
             override fun onTouch(view: View, event: MotionEvent): Boolean {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                        startRawX = event.rawX
-                        startRawY = event.rawY
-                        startX = params.x
-                        startY = params.y
+                        rawStartX = event.rawX
+                        rawStartY = event.rawY
+                        initialX = params.x
+                        initialY = params.y
+                        moved = false
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = (startX - event.rawX + startRawX).toInt().coerceAtLeast(0)
-                        params.y = (startY + event.rawY - startRawY).toInt().coerceAtLeast(0)
+                        val dx = (event.rawX - rawStartX).toInt()
+                        val dy = (event.rawY - rawStartY).toInt()
+                        if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > 8) moved = true
+                        params.x = (initialX + dx).coerceAtLeast(0)
+                        params.y = (initialY + dy).coerceAtLeast(0)
                         runCatching { windowManager.updateViewLayout(root, params) }
                         return true
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> return true
+                    MotionEvent.ACTION_UP -> {
+                        if (moved) {
+                            val displayWidth = resources.displayMetrics.widthPixels
+                            val overlayWidth = root.width.takeIf { it > 0 } ?: 220
+                            val maxPosition = (displayWidth - overlayWidth).coerceAtLeast(0)
+                            val edge = OverlayVisibilityPolicy.nearestEdge(params.x, maxPosition)
+                            params.x = if (edge == OverlayVisibilityPolicy.Edge.LEFT) 0 else maxPosition
+                            val displayHeight = resources.displayMetrics.heightPixels
+                            val overlayHeight = root.height.takeIf { it > 0 } ?: 80
+                            params.y = OverlayVisibilityPolicy.clampPosition(params.y, displayHeight - overlayHeight)
+                            runCatching { windowManager.updateViewLayout(root, params) }
+                            preferences.edit().putInt("x", params.x).putInt("y", params.y).apply()
+                        } else if (overlayCollapsed) {
+                            setOverlayCollapsed(false)
+                        }
+                        return true
+                    }
+                    MotionEvent.ACTION_CANCEL -> return true
                 }
                 return false
             }
@@ -221,20 +257,40 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             windowManager.addView(root, params)
             overlayRoot = root
             overlayStatus = status
-            overlayCollapsed = false
+            overlayDetails = details
+            overlayParams = params
+            overlayWindowManager = windowManager
+            setOverlayCollapsed(preferences.getBoolean("collapsed", true))
         } catch (_: RuntimeException) {
             overlayRoot = null
             overlayStatus = null
+            overlayDetails = null
+            overlayParams = null
+            overlayWindowManager = null
         }
+    }
+
+    private fun setOverlayCollapsed(collapsed: Boolean) {
+        overlayCollapsed = collapsed
+        overlayDetails?.visibility = if (collapsed) View.GONE else View.VISIBLE
+        overlayRoot?.let { root ->
+            (root.getChildAt(0) as? LinearLayout)?.getChildAt(1)?.let { button ->
+                (button as? Button)?.text = if (collapsed) "Open" else " "
+            }
+        }
+        getSharedPreferences("floating_overlay", MODE_PRIVATE)
+            .edit().putBoolean("collapsed", collapsed).apply()
     }
 
     private fun removeOverlay() {
         val root = overlayRoot ?: return
-        val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        runCatching { windowManager.removeView(root) }
+        runCatching { overlayWindowManager?.removeView(root) }
         overlayRoot = null
         overlayStatus = null
-        overlayCollapsed = false
+        overlayDetails = null
+        overlayParams = null
+        overlayWindowManager = null
+        overlayCollapsed = true
     }
 
     private fun resetMonitoringState() {
