@@ -12,8 +12,8 @@ android {
         applicationId = "com.kenznguyen.smartadskip"
         minSdk = 26
         targetSdk = 36
-        versionCode = 217
-        versionName = "0.2.17"
+        versionCode = 218
+        versionName = "0.2.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
