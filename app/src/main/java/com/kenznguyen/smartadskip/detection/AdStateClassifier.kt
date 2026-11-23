@@ -47,7 +47,7 @@ class AdStateClassifier(
 
     private fun isAdContainer(node: StructuralNodeMetadata): Boolean {
         val id = node.resourceId?.lowercase() ?: return false
-        return AD_RESOURCE_MARKERS.any(id::contains) && node.bounds.hasArea
+        return AD_RESOURCE_MARKERS.any { marker -> id.contains(marker) } && node.bounds.hasArea
     }
 
     private fun isSkipControl(node: StructuralNodeMetadata): Boolean {
