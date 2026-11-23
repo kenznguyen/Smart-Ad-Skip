@@ -1,90 +1,71 @@
 package com.kenznguyen.smartadskip.accessibility
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class OcrActionPolicyTest {
     private val policy = OcrActionPolicy()
 
     @Test
-    fun recognizesNextAndSkipLabelsAsNextAdHints() {
-        assertEquals(OcrActionHint.NEXT_AD, policy.analyze("Next"))
-        assertEquals(OcrActionHint.NEXT_AD, policy.analyze("Skip Ad"))
+    fun recognizesNextAndSkipLabelsAsNextAdCandidatesWithoutVisualInput() {
+        assertEquals(VisualActionType.NEXT_AD, policy.resolveCandidate("Next"))
+        assertEquals(VisualActionType.NEXT_AD, policy.resolveCandidate("Skip Ad"))
     }
 
     @Test
-    fun recognizesCloseAndDismissLabelsAsCloseHints() {
-        assertEquals(OcrActionHint.CLOSE, policy.analyze("Close"))
-        assertEquals(OcrActionHint.CLOSE, policy.analyze("Dismiss"))
-        assertEquals(OcrActionHint.CLOSE, policy.analyze("X"))
+    fun recognizesCloseAndDismissLabelsAsCloseCandidatesWithoutVisualInput() {
+        assertEquals(VisualActionType.CLOSE, policy.resolveCandidate("Close"))
+        assertEquals(VisualActionType.CLOSE, policy.resolveCandidate("Dismiss"))
+        assertEquals(VisualActionType.CLOSE, policy.resolveCandidate("X"))
     }
 
     @Test
-    fun marksProtectedCommercialAndRewardLabelsAsProtected() {
-        listOf("Install", "Download", "Buy now", "Purchase", "Claim reward", "Collect", "Continue", "Subscribe", "Sign up")
-            .forEach { assertEquals(it, OcrActionHint.PROTECTED, policy.analyze(it)) }
+    fun protectedLabelsAlwaysRejectCandidate() {
+        listOf(
+            "Install", "Download", "Buy now", "Purchase", "Claim reward",
+            "Collect", "Reward", "Shop", "Sponsored", "Continue", "Open",
+            "Visit", "Subscribe", "Play Now", "Learn More", "Get Started",
+            "Get It", "Sign Up", "Watch Now"
+        ).forEach { assertNull("$it must be protected", policy.resolveCandidate(it)) }
     }
 
     @Test
-    fun treatsMissingTextAsNeutralAndUnrecognizedTextAsAmbiguous() {
-        assertEquals(OcrActionHint.NO_TEXT, policy.analyze(""))
-        assertEquals(OcrActionHint.AMBIGUOUS, policy.analyze("limited time offer"))
+    fun ambiguousRecognizedTextDoesNotBecomeAnAction() {
+        assertNull(policy.resolveCandidate("limited time offer"))
     }
 
     @Test
-    fun allowsSymbolOnlyVisualActionWhenOcrFindsNoText() {
-        assertTrue(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.NO_TEXT))
-        assertTrue(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.NO_TEXT))
+    fun noTextRequiresSymbolDiscoveryAndDoesNotAuthorizeByItself() {
+        assertNull(policy.resolveCandidate(""))
+        assertEquals(
+            VisualActionType.NEXT_AD,
+            policy.resolveCandidate("", symbolDiscovery = VisualActionType.NEXT_AD)
+        )
+        assertEquals(
+            VisualActionType.CLOSE,
+            policy.resolveCandidate("", symbolDiscovery = VisualActionType.CLOSE)
+        )
+        assertNull(policy.resolveCandidate("", symbolDiscovery = VisualActionType.UNKNOWN))
     }
 
     @Test
-    fun rejectsUnclassifiedRecognizedText() {
-        assertFalse(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.AMBIGUOUS))
-        assertFalse(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.AMBIGUOUS))
+    fun textActionCannotBeOverriddenByConflictingSymbolDiscovery() {
+        assertEquals(
+            VisualActionType.NEXT_AD,
+            policy.resolveCandidate("Next", symbolDiscovery = VisualActionType.CLOSE)
+        )
+        assertEquals(
+            VisualActionType.CLOSE,
+            policy.resolveCandidate("Close", symbolDiscovery = VisualActionType.NEXT_AD)
+        )
     }
 
     @Test
-    fun rejectsOcrLabelThatConflictsWithVisualAction() {
-        assertFalse(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.CLOSE))
-        assertFalse(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.NEXT_AD))
-    }
-
-    @Test
-    fun protectedOcrTextAlwaysVetoesVisualAction() {
-        assertFalse(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.PROTECTED))
-        assertFalse(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.PROTECTED))
-    }
-
-    @Test
-    fun ocrFirstCandidateRequiresMatchingVisualVerification() {
-        assertTrue(policy.canVerifyCandidate(OcrActionHint.NEXT_AD, VisualActionType.NEXT_AD))
-        assertTrue(policy.canVerifyCandidate(OcrActionHint.CLOSE, VisualActionType.CLOSE))
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.NEXT_AD, VisualActionType.CLOSE))
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.CLOSE, VisualActionType.NEXT_AD))
-    }
-
-    @Test
-    fun symbolOnlyCandidateRequiresVisualVerificationWhenOcrFindsNoText() {
-        assertTrue(policy.canVerifyCandidate(OcrActionHint.NO_TEXT, VisualActionType.NEXT_AD))
-        assertTrue(policy.canVerifyCandidate(OcrActionHint.NO_TEXT, VisualActionType.CLOSE))
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.NO_TEXT, VisualActionType.UNKNOWN))
-    }
-
-    @Test
-    fun protectedOrAmbiguousOcrCandidateCannotBeVisuallyPromoted() {
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.PROTECTED, VisualActionType.NEXT_AD))
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.PROTECTED, VisualActionType.CLOSE))
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.AMBIGUOUS, VisualActionType.NEXT_AD))
-        assertFalse(policy.canVerifyCandidate(OcrActionHint.AMBIGUOUS, VisualActionType.CLOSE))
-    }
-
-    @Test
-    fun ocrNeverAuthorizesUnknownVisualAction() {
-        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.NEXT_AD))
-        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.CLOSE))
-        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.NO_TEXT))
-        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.AMBIGUOUS))
+    fun onlyTheTwoApprovedActionsCanBeResolved() {
+        assertNotNull(policy.resolveCandidate("Next"))
+        assertNotNull(policy.resolveCandidate("Close"))
+        assertNull(policy.resolveCandidate("something else"))
     }
 }
