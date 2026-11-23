@@ -1,8 +1,8 @@
 package com.kenznguyen.smartadskip.accessibility
 
 /**
- * OCR is a secondary text signal only. It can veto a protected or conflicting label,
- * but it can never promote an UNKNOWN visual detection into an actionable control.
+ * OCR discovers candidate labels first. Visual Detection must independently verify the
+ * matching candidate region; OCR can never authorize a click or promote UNKNOWN pixels.
  */
 enum class OcrActionHint { NEXT_AD, CLOSE, PROTECTED, NO_TEXT, AMBIGUOUS }
 
@@ -29,6 +29,21 @@ class OcrActionPolicy {
         return OcrActionHint.AMBIGUOUS
     }
 
+    fun canVerifyCandidate(ocrHint: OcrActionHint, visualAction: VisualActionType): Boolean {
+        if (visualAction !in APPROVED_VISUAL_ACTIONS) return false
+        return when (ocrHint) {
+            OcrActionHint.PROTECTED, OcrActionHint.AMBIGUOUS -> false
+            OcrActionHint.NEXT_AD -> visualAction == VisualActionType.NEXT_AD
+            OcrActionHint.CLOSE -> visualAction == VisualActionType.CLOSE
+            // OCR found no text: symbol-only controls still require positive visual proof.
+            OcrActionHint.NO_TEXT -> true
+        }
+    }
+
+    /**
+     * Compatibility policy for callers that already have a visual candidate.
+     * New service flow uses [canVerifyCandidate] after OCR-first discovery.
+     */
     fun canProceed(visualAction: VisualActionType, ocrHint: OcrActionHint): Boolean {
         if (visualAction !in APPROVED_VISUAL_ACTIONS) return false
         return when (ocrHint) {
