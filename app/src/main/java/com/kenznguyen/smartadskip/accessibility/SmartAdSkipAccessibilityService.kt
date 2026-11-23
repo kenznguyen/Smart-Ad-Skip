@@ -281,13 +281,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                     // OCR runs first to identify candidate labels in each live
                                     // Accessibility region. Visual Detection must then verify the
                                     // same region before it can reach Click Authorization.
-                                    ownershipTransferredToOcr = true
                                     runOcrFirstVerification(
                                         bitmap = bitmap,
                                         snapshot = snapshot,
                                         previous = previous,
                                         requestId = requestId
                                     )
+                                    ownershipTransferredToOcr = true
                                 }
                             } catch (_: RuntimeException) {
                                 // A failed frame must never reach visual authorization or clicking.
