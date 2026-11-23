@@ -163,7 +163,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         val expandButton = Button(this).apply {
             text = "Open"
-            setOnClickListener { setOverlayCollapsed(false) }
+            setOnClickListener { setOverlayCollapsed(!overlayCollapsed) }
         }
         val details = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -203,8 +203,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = preferences.getInt("x", maxX)
-            y = preferences.getInt("y", 160).coerceAtLeast(0)
+            x = OverlayVisibilityPolicy.clampPosition(preferences.getInt("x", maxX), maxX)
+            y = OverlayVisibilityPolicy.clampPosition(
+                preferences.getInt("y", 160),
+                (metrics.heightPixels - 100).coerceAtLeast(0)
+            )
         }
         title.setOnTouchListener(object : View.OnTouchListener {
             private var rawStartX = 0f
@@ -275,7 +278,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         overlayDetails?.visibility = if (collapsed) View.GONE else View.VISIBLE
         overlayRoot?.let { root ->
             (root.getChildAt(0) as? LinearLayout)?.getChildAt(1)?.let { button ->
-                (button as? Button)?.text = if (collapsed) "Open" else " "
+                (button as? Button)?.text = if (collapsed) "Open" else "Collapse"
             }
         }
         getSharedPreferences("floating_overlay", MODE_PRIVATE)
