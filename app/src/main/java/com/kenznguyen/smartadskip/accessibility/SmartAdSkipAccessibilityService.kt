@@ -267,10 +267,18 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     mainExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(result: ScreenshotResult) {
+                            var ownershipTransferredToOcr = false
+                            val bitmap = try {
+                                copyScreenshot(result)
+                            } catch (_: RuntimeException) {
+                                null
+                            }
+                            if (bitmap == null) {
+                                screenshotLifecycle.finish(requestId)
+                                return
+                            }
                             try {
-                                val bitmap = copyScreenshot(result) ?: return
-                                try {
-                                    if (!screenshotLifecycle.isCurrent(requestId)) return
+                                if (screenshotLifecycle.isCurrent(requestId)) {
                                     val detected = findVisualAction(snapshot, bitmap)
                                     val visualMatch = detected?.second
                                         ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
@@ -279,6 +287,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                         System.currentTimeMillis()
                                     )
                                     if (detected != null && confirmedAction != null) {
+                                        ownershipTransferredToOcr = true
                                         runOcrAndAttemptVerifiedClick(
                                             bitmap = bitmap,
                                             snapshot = snapshot,
@@ -287,15 +296,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                             confirmedAction = confirmedAction,
                                             requestId = requestId
                                         )
-                                        return
                                     }
-                                } finally {
-                                    bitmap.recycle()
                                 }
                             } catch (_: RuntimeException) {
                                 // A failed frame must never reach visual authorization or clicking.
                             } finally {
-                                screenshotLifecycle.finish(requestId)
+                                if (!ownershipTransferredToOcr) {
+                                    bitmap.recycle()
+                                    screenshotLifecycle.finish(requestId)
+                                }
                             }
                         }
 
