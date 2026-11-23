@@ -19,8 +19,6 @@ data class StructuralNodeMetadata(
 )
 
 data class ActionableNodeCandidate(
-    val resourceId: String?,
-    val viewClassName: String?,
     val bounds: ScreenBounds
 )
 
