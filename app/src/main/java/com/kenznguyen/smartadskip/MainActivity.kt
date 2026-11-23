@@ -76,7 +76,7 @@ private fun AccessibilityMonitorScreen() {
         !snapshotFresh -> "STALE_SNAPSHOT"
         else -> actionable?.status?.name ?: "WAITING"
     }
-    val closeCandidates = if (snapshotFresh) actionable?.candidates.orEmpty() else emptyList()
+    val verifiedCandidates = if (snapshotFresh) actionable?.candidates.orEmpty() else emptyList()
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -110,7 +110,7 @@ private fun AccessibilityMonitorScreen() {
 
         Text("Close button detection", style = MaterialTheme.typography.titleSmall)
         Text("Detection status: $detectionStatus", style = MaterialTheme.typography.bodyMedium)
-        Text("Close candidates: ${closeCandidates.size}", style = MaterialTheme.typography.bodyMedium)
+        Text("Verified actionable nodes: ${verifiedCandidates.size}", style = MaterialTheme.typography.bodyMedium)
         Text("Allowed action: CLOSE only (X / Close / Dismiss)", style = MaterialTheme.typography.bodyMedium)
 
         Text("Click authorization", style = MaterialTheme.typography.titleSmall)
