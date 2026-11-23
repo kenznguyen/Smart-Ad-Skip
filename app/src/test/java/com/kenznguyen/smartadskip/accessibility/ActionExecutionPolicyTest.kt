@@ -9,15 +9,15 @@ class ActionExecutionPolicyTest {
     private val policy = ActionExecutionPolicy()
 
     @Test
-    fun permitsClicksOnlyWhileRecognizedAdIsActive() {
-        assertTrue(policy.canClick(AdState.AD_PLAYING, "GameAdActivity", null))
-        assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, "GameAdActivity", null))
-        assertFalse(policy.canClick(AdState.AD_COMPLETED, "GameActivity", "InterstitialActivity"))
+    fun permitsClicksOnlyWhileRecognizedAdIsActiveAndNotRewarded() {
+        assertTrue(policy.canClick(AdState.AD_PLAYING, "GameAdActivity", null, false, false))
+        assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, "GameAdActivity", null, false, false))
     }
 
     @Test
-    fun rejectsUnknownAdContext() {
-        assertFalse(policy.canClick(AdState.UNKNOWN, "GameActivity", null))
+    fun blocksUnknownAndCompletedAdContexts() {
+        assertFalse(policy.canClick(AdState.UNKNOWN, "GameActivity", null, false, false))
+        assertFalse(policy.canClick(AdState.AD_COMPLETED, "GameActivity", "InterstitialActivity", false, false))
     }
 
     @Test
@@ -26,9 +26,17 @@ class ActionExecutionPolicyTest {
             policy.canClick(
                 AdState.AD_PLAYING,
                 "com.google.android.gms.ads.AdActivity",
-                null
+                null,
+                false,
+                false
             )
         )
+    }
+
+    @Test
+    fun rejectsRewardedAdResourceMarkerEvenWithUnknownActivityClass() {
+        assertFalse(policy.canClick(AdState.AD_PLAYING, "GameAdActivity", null, true, false))
+        assertFalse(policy.canClick(AdState.SKIP_AVAILABLE, "GameAdActivity", null, false, true))
     }
 
     @Test
@@ -37,7 +45,9 @@ class ActionExecutionPolicyTest {
             policy.canClick(
                 AdState.SKIP_AVAILABLE,
                 "GameAdActivity",
-                "com.mbridge.msdk.reward.player.MBRewardVideoActivity"
+                "com.mbridge.msdk.reward.player.MBRewardVideoActivity",
+                false,
+                false
             )
         )
     }
