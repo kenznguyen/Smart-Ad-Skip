@@ -121,16 +121,17 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     node.isVisibleToUser &&
                     nodeBounds.hasArea &&
                     actionType in APPROVED_ACTIONS
+                val childCount = node.childCount
+
+                for (index in 0 until childCount) {
+                    if (pending.size + liveCandidates.size >= MAX_NODES_PER_EVENT) break
+                    node.getChild(index)?.let(pending::addLast)
+                }
 
                 if (eligible) {
                     liveCandidates += node to actionType
                 } else {
                     node.recycle()
-                }
-
-                for (index in 0 until node.childCount) {
-                    if (pending.size + liveCandidates.size >= MAX_NODES_PER_EVENT) break
-                    node.getChild(index)?.let(pending::addLast)
                 }
             }
 
