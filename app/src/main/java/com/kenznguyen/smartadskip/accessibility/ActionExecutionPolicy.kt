@@ -3,16 +3,18 @@ package com.kenznguyen.smartadskip.accessibility
 import com.kenznguyen.smartadskip.detection.AdState
 
 /**
- * Ad-state UNKNOWN is not an independent denial when a supported visual action
- * has passed single-frame Visual Detection and OCR corroboration. Completed contexts remain blocked.
+ * Final action allowlist for Click Authorization.
+ * Candidate discovery (OCR or symbol classification) is not sufficient to click.
+ * The service must first pass package, freshness, and live Accessibility checks.
+ * Completed ad contexts are always blocked.
  */
 class ActionExecutionPolicy {
-    fun canClick(adState: AdState, verifiedAction: VisualActionType): Boolean =
+    fun canClick(adState: AdState, detectedAction: VisualActionType): Boolean =
         adState != AdState.AD_COMPLETED &&
-            verifiedAction in APPROVED_VISUAL_ACTIONS
+            detectedAction in APPROVED_ACTIONS
 
     private companion object {
-        val APPROVED_VISUAL_ACTIONS = setOf(
+        val APPROVED_ACTIONS = setOf(
             VisualActionType.NEXT_AD,
             VisualActionType.CLOSE
         )
