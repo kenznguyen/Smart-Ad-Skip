@@ -45,7 +45,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val actionableNodeDetector = ActionableNodeDetector()
     private val actionExecutionPolicy = ActionExecutionPolicy()
     private val visualActionDetector = VisualActionDetector()
-    private val visualActionTemporalVerifier = VisualActionTemporalVerifier()
     private val ocrActionPolicy = OcrActionPolicy()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
@@ -240,7 +239,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         lastActionableUiState = null
         attemptedControlKeys.clear()
         screenshotLifecycle.reset()
-        visualActionTemporalVerifier.reset()
         temporalPatternAnalyzer.reset()
         AdDetectionRepository.reset()
         AccessibilityMonitorRepository.setConnected(false)
@@ -280,20 +278,20 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             try {
                                 if (screenshotLifecycle.isCurrent(requestId)) {
                                     val detected = findVisualAction(snapshot, bitmap)
-                                    val visualMatch = detected?.second
-                                        ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
-                                    val confirmedAction = visualActionTemporalVerifier.observe(
-                                        visualMatch,
-                                        System.currentTimeMillis()
-                                    )
-                                    if (detected != null && confirmedAction != null) {
+                                    // VisualActionDetector rejects UNKNOWN and low-confidence
+                                    // matches. One fresh frame may proceed to OCR corroboration;
+                                    // live Accessibility and Click Authorization remain mandatory.
+                                    val detectedAction = detected?.second?.type
+                                    if (detected != null && detectedAction != null &&
+                                        detectedAction in APPROVED_VISUAL_ACTIONS
+                                    ) {
                                         ownershipTransferredToOcr = true
                                         runOcrAndAttemptVerifiedClick(
                                             bitmap = bitmap,
                                             snapshot = snapshot,
                                             previous = previous,
                                             targetBounds = detected.first,
-                                            confirmedAction = confirmedAction,
+                                            visualAction = visualAction,
                                             requestId = requestId
                                         )
                                     }
@@ -372,14 +370,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         snapshot: AccessibilitySnapshot,
         previous: AccessibilitySnapshot?,
         targetBounds: ScreenBounds,
-        confirmedAction: VisualActionType,
+        visualAction: VisualActionType,
         requestId: Long
     ) {
         val image = runCatching { InputImage.fromBitmap(bitmap, 0) }.getOrNull()
         if (image == null) {
             try {
                 authorizeOcrAssistedAction(
-                    snapshot, previous, targetBounds, confirmedAction,
+                    snapshot, previous, targetBounds, visualAction,
                     OcrActionHint.AMBIGUOUS, requestId
                 )
             } finally {
@@ -409,7 +407,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         }
                         .joinToString(" ") { it.text }
                     authorizeOcrAssistedAction(
-                        snapshot, previous, targetBounds, confirmedAction,
+                        snapshot, previous, targetBounds, visualAction,
                         ocrActionPolicy.analyze(textInsideTarget), requestId
                     )
                 } finally {
@@ -421,7 +419,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 try {
                     if (screenshotLifecycle.isCurrent(requestId)) {
                         authorizeOcrAssistedAction(
-                            snapshot, previous, targetBounds, confirmedAction,
+                            snapshot, previous, targetBounds, visualAction,
                             OcrActionHint.AMBIGUOUS, requestId
                         )
                     }
@@ -436,12 +434,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         snapshot: AccessibilitySnapshot,
         previous: AccessibilitySnapshot?,
         targetBounds: ScreenBounds,
-        confirmedAction: VisualActionType,
+        visualAction: VisualActionType,
         ocrHint: OcrActionHint,
         requestId: Long
     ) {
         if (!screenshotLifecycle.isCurrent(requestId)) return
-        if (!ocrActionPolicy.canProceed(confirmedAction, ocrHint)) return
+        if (!ocrActionPolicy.canProceed(visualAction, ocrHint)) return
         val verifiedState = adStateClassifier.classify(
             snapshot,
             System.currentTimeMillis(),
@@ -449,7 +447,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             hasVerifiedVisualAction = true
         )
         AdDetectionRepository.publish(verifiedState)
-        attemptVerifiedLiveClick(snapshot, targetBounds, confirmedAction, verifiedState)
+        attemptVerifiedLiveClick(snapshot, targetBounds, visualAction, verifiedState)
     }
 
     private fun attemptVerifiedLiveClick(
