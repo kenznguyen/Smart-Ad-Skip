@@ -83,6 +83,31 @@ class AccessibilitySnapshotPolicyTest {
     }
 
     @Test
+    fun create_capsStructuralMetadataAndNormalizesIdentifiers() {
+        val nodes = (1..250).map {
+            StructuralNodeMetadata(
+                viewClassName = " android.widget.FrameLayout ",
+                resourceId = " com.example:id/node_$it ",
+                clickable = false,
+                bounds = ScreenBounds(0, 0, 10, 10)
+            )
+        }
+
+        val snapshot = policy.create(
+            packageName = "com.example.game",
+            eventType = 1,
+            windowClassName = null,
+            nodeCount = 250,
+            clickableNodeCount = 0,
+            structuralNodes = nodes
+        )
+
+        assertEquals(200, snapshot.structuralNodes.size)
+        assertEquals("android.widget.FrameLayout", snapshot.structuralNodes.first().viewClassName)
+        assertEquals("com.example:id/node_1", snapshot.structuralNodes.first().resourceId)
+    }
+
+    @Test
     fun create_neverExposesUiTextOrInputValues() {
         val snapshot = policy.create(
             packageName = "com.example.game",
@@ -97,7 +122,7 @@ class AccessibilitySnapshotPolicyTest {
             .toSet()
 
         assertTrue(fieldNames.containsAll(
-            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount", "observedAtEpochMillis")
+            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount", "observedAtEpochMillis", "structuralNodes")
         ))
         assertFalse(fieldNames.any {
             it.contains("text", ignoreCase = true) ||
