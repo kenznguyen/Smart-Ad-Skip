@@ -15,17 +15,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-
-        val counts = runCatching {
-            countVisibleNodes(rootInActiveWindow)
-        }.getOrDefault(NodeCounts(0, 0))
-
+        val counts = runCatching { countVisibleNodes(rootInActiveWindow) }
+            .getOrDefault(NodeCounts(0, 0))
         val snapshot = snapshotPolicy.create(
             packageName = event.packageName?.toString(),
             eventType = event.eventType,
             windowClassName = event.className,
             nodeCount = counts.total,
-            clickableNodeCount = counts.clickable
+            clickableNodeCount = counts.clickable,
+            observedAtEpochMillis = System.currentTimeMillis()
         )
         AccessibilityMonitorRepository.publish(snapshot)
     }
@@ -44,18 +42,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     private fun countVisibleNodes(root: AccessibilityNodeInfo?): NodeCounts {
         if (root == null) return NodeCounts(0, 0)
-
         val pending = ArrayDeque<AccessibilityNodeInfo>()
         pending.addLast(root)
         var total = 0
         var clickable = 0
-
         while (pending.isNotEmpty() && total < MAX_NODES_PER_EVENT) {
             val node = pending.removeFirst()
             try {
                 total += 1
                 if (node.isClickable) clickable += 1
-
                 for (index in 0 until node.childCount) {
                     if (total + pending.size >= MAX_NODES_PER_EVENT) break
                     node.getChild(index)?.let(pending::addLast)
@@ -64,11 +59,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 node.recycle()
             }
         }
-
-        while (pending.isNotEmpty()) {
-            pending.removeFirst().recycle()
-        }
-
+        while (pending.isNotEmpty()) pending.removeFirst().recycle()
         return NodeCounts(total, clickable)
     }
 
