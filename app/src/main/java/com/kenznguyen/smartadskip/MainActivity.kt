@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
+import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshotPolicy
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import java.time.Instant
 import java.time.ZoneId
@@ -60,6 +61,7 @@ private fun AccessibilityMonitorScreen() {
         snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
+    val diagnosticNodes = snapshot?.let { AccessibilitySnapshotPolicy().diagnosticNodes(it) }.orEmpty()
     val displayedAdState = if (
         snapshot == null || snapshotAgeSeconds > SNAPSHOT_STALE_AFTER_SECONDS
     ) "UNKNOWN" else adState.name
@@ -87,6 +89,17 @@ private fun AccessibilityMonitorScreen() {
             "Structural nodes: ${snapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
+        Text("Structural diagnostics (max 20)", style = MaterialTheme.typography.titleSmall)
+        if (diagnosticNodes.isEmpty()) {
+            Text("No structural metadata available", style = MaterialTheme.typography.bodySmall)
+        } else {
+            diagnosticNodes.forEachIndexed { index, node ->
+                Text(
+                    "${index + 1}. ${node.viewClassName ?: "—"} · ${node.resourceId ?: "no resource id"} · clickable=${node.clickable}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
         Text("Safety: Strict · Observe only · No automatic actions", style = MaterialTheme.typography.bodyMedium)
