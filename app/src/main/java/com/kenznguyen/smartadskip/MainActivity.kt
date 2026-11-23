@@ -49,26 +49,27 @@ private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
+    val currentSnapshot = snapshot
     val adState by AdDetectionRepository.state.collectAsState()
     val overlayRequested by OverlayRequestRepository.requested.collectAsState()
-    val nowMillis by produceState(initialValue = System.currentTimeMillis(), snapshot?.observedAtEpochMillis) {
+    val nowMillis by produceState(initialValue = System.currentTimeMillis(), currentSnapshot?.observedAtEpochMillis) {
         while (true) {
             value = System.currentTimeMillis()
             delay(1_000)
         }
     }
-    val snapshotAgeSeconds = snapshot?.let {
+    val snapshotAgeSeconds = currentSnapshot?.let {
         (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
     } ?: 0L
-    val snapshotFresh = snapshot != null && (nowMillis - snapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
+    val snapshotFresh = currentSnapshot != null && (nowMillis - currentSnapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
     val snapshotFreshness = when {
-        snapshot == null -> "Waiting for first event"
+        currentSnapshot == null -> "Waiting for first event"
         snapshotFresh -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
-    val diagnosticNodes = snapshot?.let { AccessibilitySnapshotPolicy().diagnosticNodes(it) }.orEmpty()
+    val diagnosticNodes = currentSnapshot?.let { AccessibilitySnapshotPolicy().diagnosticNodes(it) }.orEmpty()
     val displayedAdState = if (!snapshotFresh) "UNKNOWN" else adState.name
-    val observedAt = snapshot?.let {
+    val observedAt = currentSnapshot?.let {
         EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(it.observedAtEpochMillis))
     } ?: "—"
 
@@ -89,22 +90,22 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Floating overlay: ${if (overlayRequested) "Requested" else "Off"}", style = MaterialTheme.typography.bodyMedium)
         Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
-        Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Window class: ${snapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Event type: ${snapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Latest observed package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Window class: ${currentSnapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Event type: ${currentSnapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text(
-            "Structural nodes: ${snapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
+            "Structural nodes: ${currentSnapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${currentSnapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
         Text("Actionable UI detection", style = MaterialTheme.typography.titleSmall)
-        val actionable = snapshot?.actionableNodes
+        val actionable = currentSnapshot?.actionableNodes
         Text(
             "Detection: ${if (snapshotFresh) actionable?.status?.name ?: "WAITING" else "STALE_SNAPSHOT"}",
             style = MaterialTheme.typography.bodySmall
         )
         val candidates = if (snapshotFresh) actionable?.candidates.orEmpty() else emptyList()
         if (candidates.isEmpty()) {
-            Text("No verified actionable controls in the latest snapshot", style = MaterialTheme.typography.bodySmall)
+            Text("No verified actionable controls in the latest currentSnapshot", style = MaterialTheme.typography.bodySmall)
         } else {
             candidates.forEachIndexed { index, candidate ->
                 Text(
@@ -115,7 +116,7 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Visual actions: NEXT_AD / CLOSE · Strict Safety gated", style = MaterialTheme.typography.bodySmall)
         Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
-        val transition = snapshot?.structuralTransition
+        val transition = currentSnapshot?.structuralTransition
         if (transition?.comparisonAvailable == true) {
             Text("Window class changed: ${transition.windowClassChanged}", style = MaterialTheme.typography.bodySmall)
             Text("Structural node delta: ${transition.structuralNodeDelta}", style = MaterialTheme.typography.bodySmall)
@@ -124,7 +125,7 @@ private fun AccessibilityMonitorScreen() {
             Text("Baseline / insufficient fresh same-package history", style = MaterialTheme.typography.bodySmall)
         }
         Text("Temporal pattern diagnostics (max 10 samples)", style = MaterialTheme.typography.titleSmall)
-        val temporal = snapshot?.temporalPattern
+        val temporal = currentSnapshot?.temporalPattern
         if (temporal?.historyAvailable == true) {
             Text("Samples: ${temporal.sampleCount}", style = MaterialTheme.typography.bodySmall)
             Text("Window transitions: ${temporal.windowTransitionCount}", style = MaterialTheme.typography.bodySmall)
