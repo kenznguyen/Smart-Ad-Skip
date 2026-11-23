@@ -24,7 +24,8 @@ data class AccessibilitySnapshot(
     val clickableNodeCount: Int,
     val observedAtEpochMillis: Long,
     val structuralNodes: List<StructuralNodeMetadata> = emptyList(),
-    val structuralTransition: StructuralTransitionDiagnostics? = null
+    val structuralTransition: StructuralTransitionDiagnostics? = null,
+    val temporalPattern: TemporalPatternDiagnostics? = null
 )
 
 class AccessibilitySnapshotPolicy {
