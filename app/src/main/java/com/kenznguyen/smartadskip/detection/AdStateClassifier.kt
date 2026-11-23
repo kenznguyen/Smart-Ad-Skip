@@ -21,6 +21,8 @@ class AdStateClassifier(
         if (!isFresh(current.observedAtEpochMillis, nowEpochMillis)) return AdState.UNKNOWN
         if (current.structuralNodes.isEmpty()) return AdState.UNKNOWN
 
+        if (isMbridgeRewardVideoActivity(current)) return AdState.AD_PLAYING
+
         val hasAdContainer = current.structuralNodes.any(::isAdContainer)
         val hasSkipControl = current.structuralNodes.any(::isSkipControl)
 
@@ -40,6 +42,10 @@ class AdStateClassifier(
         return AdState.UNKNOWN
     }
 
+    private fun isMbridgeRewardVideoActivity(snapshot: AccessibilitySnapshot): Boolean =
+        snapshot.packageName != null &&
+            snapshot.windowClassName == MBRIDGE_REWARD_VIDEO_ACTIVITY
+
     private fun isFresh(timestamp: Long, now: Long): Boolean {
         val age = now - timestamp
         return timestamp > 0L && age in 0..staleAfterMillis
@@ -56,6 +62,7 @@ class AdStateClassifier(
     }
 
     private companion object {
+        const val MBRIDGE_REWARD_VIDEO_ACTIVITY = "com.mbridge.msdk.reward.player.MBRewardVideoActivity"
         val AD_RESOURCE_MARKERS = listOf("ad_container", "ad_view", "interstitial_ad", "rewarded_ad")
     }
 }
