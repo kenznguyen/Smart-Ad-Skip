@@ -2,23 +2,23 @@ package com.kenznguyen.smartadskip.accessibility
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class OcrActionPolicyTest {
     private val policy = OcrActionPolicy()
 
     @Test
-    fun recognizesNextAndSkipLabelsAsNextAdCandidatesWithoutVisualInput() {
-        assertEquals(VisualActionType.NEXT_AD, policy.resolveCandidate("Next"))
-        assertEquals(VisualActionType.NEXT_AD, policy.resolveCandidate("Skip Ad"))
-    }
-
-    @Test
-    fun recognizesCloseAndDismissLabelsAsCloseCandidatesWithoutVisualInput() {
+    fun recognizesOnlyCloseDismissAndStandaloneX() {
         assertEquals(VisualActionType.CLOSE, policy.resolveCandidate("Close"))
         assertEquals(VisualActionType.CLOSE, policy.resolveCandidate("Dismiss"))
         assertEquals(VisualActionType.CLOSE, policy.resolveCandidate("X"))
+    }
+
+    @Test
+    fun nextAndSkipLabelsNeverResolveToActions() {
+        listOf("Next", "Skip", "Skip Ad", "Next Ad", ">>").forEach {
+            assertNull("$it must not resolve", policy.resolveCandidate(it))
+        }
     }
 
     @Test
@@ -37,35 +37,22 @@ class OcrActionPolicyTest {
     }
 
     @Test
-    fun noTextRequiresSymbolDiscoveryAndDoesNotAuthorizeByItself() {
+    fun noTextRequiresPositiveCloseSymbolDiscovery() {
         assertNull(policy.resolveCandidate(""))
-        assertEquals(
-            VisualActionType.NEXT_AD,
-            policy.resolveCandidate("", symbolDiscovery = VisualActionType.NEXT_AD)
-        )
         assertEquals(
             VisualActionType.CLOSE,
             policy.resolveCandidate("", symbolDiscovery = VisualActionType.CLOSE)
         )
+        assertNull(policy.resolveCandidate("", symbolDiscovery = VisualActionType.NEXT_AD))
         assertNull(policy.resolveCandidate("", symbolDiscovery = VisualActionType.UNKNOWN))
     }
 
     @Test
-    fun textActionCannotBeOverriddenByConflictingSymbolDiscovery() {
-        assertEquals(
-            VisualActionType.NEXT_AD,
-            policy.resolveCandidate("Next", symbolDiscovery = VisualActionType.CLOSE)
-        )
+    fun recognizedTextCannotBeOverriddenBySymbolDiscovery() {
         assertEquals(
             VisualActionType.CLOSE,
             policy.resolveCandidate("Close", symbolDiscovery = VisualActionType.NEXT_AD)
         )
-    }
-
-    @Test
-    fun onlyTheTwoApprovedActionsCanBeResolved() {
-        assertNotNull(policy.resolveCandidate("Next"))
-        assertNotNull(policy.resolveCandidate("Close"))
-        assertNull(policy.resolveCandidate("something else"))
+        assertNull(policy.resolveCandidate("Install", symbolDiscovery = VisualActionType.CLOSE))
     }
 }
