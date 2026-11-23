@@ -13,7 +13,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val adStateClassifier = AdStateClassifier()
     private val structuralTransitionAnalyzer = StructuralTransitionAnalyzer()
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
-    private val closeButtonDetector = CloseButtonDetector()
+    private val actionableNodeDetector = ActionableNodeDetector()
     private var previousSnapshot: AccessibilitySnapshot? = null
 
     override fun onServiceConnected() {
@@ -40,15 +40,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         )
         val snapshot = baseSnapshot.copy(
             structuralTransition = structuralTransitionAnalyzer.analyze(previousSnapshot, baseSnapshot, now),
-            temporalPattern = temporalPatternAnalyzer.record(baseSnapshot)
+            temporalPattern = temporalPatternAnalyzer.record(baseSnapshot),
+            actionableNodes = actionableNodeDetector.detect(baseSnapshot, now)
         )
         val state = adStateClassifier.classify(snapshot, now, previousSnapshot)
-        val enrichedSnapshot = snapshot.copy(
-            closeButton = closeButtonDetector.detect(snapshot, previousSnapshot, state, now)
-        )
         AdDetectionRepository.publish(state)
-        previousSnapshot = enrichedSnapshot
-        AccessibilityMonitorRepository.publish(enrichedSnapshot)
+        previousSnapshot = snapshot
+        AccessibilityMonitorRepository.publish(snapshot)
     }
 
     override fun onInterrupt() = Unit
@@ -84,7 +82,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     viewClassName = node.className?.toString(),
                     resourceId = node.viewIdResourceName,
                     clickable = node.isClickable,
-                    bounds = ScreenBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+                    bounds = ScreenBounds(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                    enabled = node.isEnabled,
+                    visible = node.isVisibleToUser
                 )
                 for (index in 0 until node.childCount) {
                     if (collected.size + pending.size >= MAX_NODES_PER_EVENT) break
