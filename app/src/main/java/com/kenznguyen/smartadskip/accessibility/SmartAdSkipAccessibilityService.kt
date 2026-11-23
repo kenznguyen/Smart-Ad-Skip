@@ -291,7 +291,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                             snapshot = snapshot,
                                             previous = previous,
                                             targetBounds = detected.first,
-                                            visualAction = visualAction,
+                                            visualAction = detectedAction,
                                             requestId = requestId
                                         )
                                     }
