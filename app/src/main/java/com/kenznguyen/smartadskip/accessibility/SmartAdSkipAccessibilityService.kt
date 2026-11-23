@@ -344,9 +344,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * OCR-first candidate discovery. OCR text is scoped to each clickable Accessibility
-     * region; VisualActionDetector then verifies the exact same crop. NO_TEXT is the only
-     * neutral OCR result and still requires a positive visual match for symbol-only >> / X.
+     * OCR-first candidate discovery. OCR-recognized NEXT_AD/CLOSE labels need no pixel
+     * verification. For NO_TEXT symbol-only >> / X controls, pixel classification discovers
+     * the candidate action. All candidates still require live Accessibility and final
+     * Click Authorization; OCR and pixel classification cannot authorize a click.
      */
     private fun runOcrFirstCandidateDiscovery(
         bitmap: Bitmap,
