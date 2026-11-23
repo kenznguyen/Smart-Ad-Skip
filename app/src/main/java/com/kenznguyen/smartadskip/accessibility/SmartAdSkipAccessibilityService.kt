@@ -14,7 +14,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val structuralTransitionAnalyzer = StructuralTransitionAnalyzer()
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
     private val actionableNodeDetector = ActionableNodeDetector()
+    private val actionableControlPolicy = ActionableControlPolicy()
     private var previousSnapshot: AccessibilitySnapshot? = null
+    private var lastActionableUiState: Pair<String?, List<StructuralNodeMetadata>>? = null
+    private val attemptedControlKeys = mutableSetOf<String>()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -47,6 +50,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         AdDetectionRepository.publish(state)
         previousSnapshot = snapshot
         AccessibilityMonitorRepository.publish(snapshot)
+        attemptApprovedClick(snapshot, now)
     }
 
     override fun onInterrupt() = Unit
@@ -63,9 +67,103 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     private fun resetMonitoringState() {
         previousSnapshot = null
+        lastActionableUiState = null
+        attemptedControlKeys.clear()
         temporalPatternAnalyzer.reset()
         AdDetectionRepository.reset()
         AccessibilityMonitorRepository.setConnected(false)
+    }
+
+    /**
+     * Clicks at most one explicitly identified navigation/dismiss control per UI state.
+     * The live node is revalidated immediately before ACTION_CLICK; no coordinates or
+     * inferred visual semantics are used.
+     */
+    private fun attemptApprovedClick(snapshot: AccessibilitySnapshot, now: Long) {
+        if (snapshot.packageName != TARGET_PACKAGE) return
+        if (now - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
+        if (snapshot.actionableNodes?.status != ActionableNodeDetectionStatus.DETECTED) return
+
+        val uiState = snapshot.windowClassName to snapshot.structuralNodes
+        if (uiState != lastActionableUiState) {
+            lastActionableUiState = uiState
+            attemptedControlKeys.clear()
+        }
+
+        val candidates = snapshot.actionableNodes.candidates
+        if (candidates.isEmpty()) return
+
+        val root = rootInActiveWindow ?: return
+        if (root.packageName?.toString() != TARGET_PACKAGE) {
+            root.recycle()
+            return
+        }
+
+        val pending = ArrayDeque<AccessibilityNodeInfo>()
+        val liveCandidates = mutableListOf<Pair<AccessibilityNodeInfo, ActionableControlType>>()
+        pending.addLast(root)
+        try {
+            while (pending.isNotEmpty() && liveCandidates.size < MAX_NODES_PER_EVENT) {
+                val node = pending.removeFirst()
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                val nodeBounds = ScreenBounds(bounds.left, bounds.top, bounds.right, bounds.bottom)
+                val resourceId = node.viewIdResourceName
+                val actionType = actionableControlPolicy.classify(resourceId)
+                val matchesSnapshot = candidates.any { candidate ->
+                    candidate.resourceId == resourceId &&
+                        candidate.viewClassName == node.className?.toString() &&
+                        candidate.bounds == nodeBounds
+                }
+                val eligible = matchesSnapshot &&
+                    node.isClickable &&
+                    node.isEnabled &&
+                    node.isVisibleToUser &&
+                    nodeBounds.hasArea &&
+                    actionType in APPROVED_ACTIONS
+
+                if (eligible) {
+                    liveCandidates += node to actionType
+                } else {
+                    node.recycle()
+                }
+
+                for (index in 0 until node.childCount) {
+                    if (pending.size + liveCandidates.size >= MAX_NODES_PER_EVENT) break
+                    node.getChild(index)?.let(pending::addLast)
+                }
+            }
+
+            val selected = liveCandidates
+                .filter { (node, type) ->
+                    controlKey(node, type) !in attemptedControlKeys
+                }
+                .minByOrNull { (_, type) -> ACTION_PRIORITY.getValue(type) }
+
+            if (selected != null) {
+                val (node, type) = selected
+                attemptedControlKeys += controlKey(node, type)
+                // One attempt only, even if the platform reports a failed click.
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        } finally {
+            liveCandidates.forEach { (node, _) -> node.recycle() }
+            while (pending.isNotEmpty()) pending.removeFirst().recycle()
+        }
+    }
+
+    private fun controlKey(node: AccessibilityNodeInfo, type: ActionableControlType): String {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        return listOf(
+            type.name,
+            node.viewIdResourceName.orEmpty(),
+            node.className?.toString().orEmpty(),
+            bounds.left,
+            bounds.top,
+            bounds.right,
+            bounds.bottom
+        ).joinToString("|")
     }
 
     private fun collectStructuralNodes(root: AccessibilityNodeInfo?): List<StructuralNodeMetadata> {
@@ -100,5 +198,17 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val MAX_NODES_PER_EVENT = 200
+        const val MAX_SNAPSHOT_AGE_MILLIS = 15_000L
+        const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
+        val APPROVED_ACTIONS = setOf(
+            ActionableControlType.NEXT_AD,
+            ActionableControlType.CLOSE,
+            ActionableControlType.CONTINUE
+        )
+        val ACTION_PRIORITY = mapOf(
+            ActionableControlType.NEXT_AD to 0,
+            ActionableControlType.CLOSE to 1,
+            ActionableControlType.CONTINUE to 2
+        )
     }
 }
