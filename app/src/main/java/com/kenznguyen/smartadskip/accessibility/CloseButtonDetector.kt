@@ -36,11 +36,7 @@ class ActionableNodeDetector(
             }
             .take(maxCandidates)
             .map { node ->
-                ActionableNodeCandidate(
-                    resourceId = node.resourceId,
-                    viewClassName = node.viewClassName,
-                    bounds = node.bounds
-                )
+                ActionableNodeCandidate(bounds = node.bounds)
             }
             .toList()
 
