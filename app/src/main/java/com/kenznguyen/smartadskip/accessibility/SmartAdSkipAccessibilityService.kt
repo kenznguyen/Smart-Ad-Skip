@@ -8,6 +8,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
@@ -115,7 +116,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
         AdDetectionRepository.publish(state)
         AccessibilityMonitorRepository.publish(snapshot)
-        captureAndAttemptVisualClick(snapshot, priorSnapshot, now)
+        captureAndAttemptAction(snapshot, priorSnapshot, now)
     }
 
     override fun onInterrupt() = Unit
@@ -250,15 +251,27 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
      * Screenshot failures are fail-closed. The request token prevents late callbacks
      * from an old service lifecycle from processing frames or releasing a newer request.
      */
-    private fun captureAndAttemptVisualClick(
+    private fun captureAndAttemptAction(
         snapshot: AccessibilitySnapshot,
         previous: AccessibilitySnapshot?,
         now: Long
     ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        if (snapshot.packageName != TARGET_PACKAGE) return
-        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, now)) return
-        val requestId = screenshotLifecycle.begin() ?: return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            logDeny("screenshot", "unsupported_api_level")
+            return
+        }
+        if (snapshot.packageName != TARGET_PACKAGE) {
+            logDeny("package", "wrong_snapshot_package")
+            return
+        }
+        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, now)) {
+            logDeny("freshness", "snapshot_stale_before_capture")
+            return
+        }
+        val requestId = screenshotLifecycle.begin() ?: run {
+            logDeny("screenshot", "capture_already_in_flight")
+            return
+        }
 
         ScreenshotRequestGuard.execute(
             request = {
@@ -274,15 +287,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 null
                             }
                             if (bitmap == null) {
+                                logDeny("screenshot", "screenshot_copy_failed")
                                 screenshotLifecycle.finish(requestId)
                                 return
                             }
                             try {
                                 if (screenshotLifecycle.isCurrent(requestId)) {
-                                    // OCR runs first to identify candidate labels in each live
-                                    // Accessibility region. Visual Detection must then verify the
-                                    // same region before it can reach Click Authorization.
-                                    runOcrFirstVerification(
+                                    // OCR classifies text candidates. Pixel classification is used
+                                    // only to discover symbol-only controls when OCR sees no text.
+                                    // Neither OCR nor pixels grant click permission.
+                                    runOcrFirstCandidateDiscovery(
                                         bitmap = bitmap,
                                         snapshot = snapshot,
                                         previous = previous,
@@ -301,12 +315,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         }
 
                         override fun onFailure(errorCode: Int) {
+                            logDeny("screenshot", "capture_failed_code=$errorCode")
                             screenshotLifecycle.finish(requestId)
                         }
                     }
                 )
             },
-            onFailure = { screenshotLifecycle.finish(requestId) }
+            onFailure = {
+                logDeny("screenshot", "capture_request_failed")
+                screenshotLifecycle.finish(requestId)
+            }
         )
     }
 
@@ -330,7 +348,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
      * region; VisualActionDetector then verifies the exact same crop. NO_TEXT is the only
      * neutral OCR result and still requires a positive visual match for symbol-only >> / X.
      */
-    private fun runOcrFirstVerification(
+    private fun runOcrFirstCandidateDiscovery(
         bitmap: Bitmap,
         snapshot: AccessibilitySnapshot,
         previous: AccessibilitySnapshot?,
@@ -339,11 +357,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val image = runCatching { InputImage.fromBitmap(bitmap, 0) }.getOrNull()
         if (image == null) {
             bitmap.recycle()
+            logDeny("ocr", "input_image_creation_failed")
             screenshotLifecycle.finish(requestId)
             return
         }
 
         val task = runCatching { textRecognizer.process(image) }.getOrElse {
+            logDeny("ocr", "recognizer_start_failed")
             bitmap.recycle()
             screenshotLifecycle.finish(requestId)
             return
@@ -351,29 +371,32 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         task.addOnSuccessListener(mainExecutor) { result ->
             try {
                 if (!screenshotLifecycle.isCurrent(requestId)) return@addOnSuccessListener
-                val verified = findOcrFirstVerifiedAction(snapshot, bitmap, result.textBlocks)
-                if (verified != null) {
-                    authorizeOcrAssistedAction(
+                val candidate = findOcrFirstCandidate(snapshot, bitmap, result.textBlocks)
+                if (candidate != null) {
+                    authorizeDetectedAction(
                         snapshot = snapshot,
                         previous = previous,
-                        targetNode = verified.node,
-                        visualAction = verified.action,
-                        ocrHint = verified.ocrHint,
+                        targetNode = candidate.node,
+                        action = candidate.action,
+                        ocrHint = candidate.ocrHint,
                         requestId = requestId
                     )
+                } else {
+                    logDeny("candidate", "no_eligible_next_ad_or_close_candidate")
                 }
             } finally {
                 bitmap.recycle()
                 screenshotLifecycle.finish(requestId)
             }
         }.addOnFailureListener(mainExecutor) {
-            // OCR failure is fail-closed; Visual Detection never runs as an independent fallback.
+            // OCR failure is fail-closed; no visual-only fallback is attempted.
+            logDeny("ocr", "recognition_failed")
             bitmap.recycle()
             screenshotLifecycle.finish(requestId)
         }
     }
 
-    private data class VerifiedOcrCandidate(
+    private data class DetectedActionCandidate(
         val node: StructuralNodeMetadata,
         val action: VisualActionType,
         val confidence: Float,
@@ -381,26 +404,29 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     )
 
     /**
-     * OCR selects a candidate first; pixels only verify that candidate. If OCR finds no
-     * text in a node, the node may still qualify as a symbol-only candidate, but only when
-     * the visual classifier positively recognizes NEXT_AD or CLOSE.
+     * OCR labels directly identify NEXT_AD/CLOSE candidates. Visual classification is
+     * consulted only for NO_TEXT regions to discover symbol-only >> / X controls.
+     * It is not a mandatory verification gate for OCR-recognized candidates.
      */
-    private fun findOcrFirstVerifiedAction(
+    private fun findOcrFirstCandidate(
         snapshot: AccessibilitySnapshot,
         bitmap: Bitmap,
         textBlocks: List<Text.TextBlock>
-    ): VerifiedOcrCandidate? {
+    ): DetectedActionCandidate? {
         val candidates = snapshot.structuralNodes
             .asSequence()
             .filter { it.clickable && it.enabled && it.visible && it.bounds.hasArea }
             .take(MAX_NODES_PER_EVENT)
 
-        val verified = candidates.mapNotNull { candidate ->
+        val eligible = candidates.mapNotNull { candidate ->
             val left = candidate.bounds.left.coerceIn(0, bitmap.width)
             val top = candidate.bounds.top.coerceIn(0, bitmap.height)
             val right = candidate.bounds.right.coerceIn(0, bitmap.width)
             val bottom = candidate.bounds.bottom.coerceIn(0, bitmap.height)
-            if (right <= left || bottom <= top) return@mapNotNull null
+            if (right <= left || bottom <= top) {
+                logDeny("candidate", "invalid_candidate_bounds")
+                return@mapNotNull null
+            }
 
             val target = Rect(left, top, right, bottom)
             val recognizedText = textBlocks
@@ -409,67 +435,98 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     box != null && Rect.intersects(target, box)
                 }
                 .joinToString(" ") { it.text }
-            val ocrHint = ocrActionPolicy.analyze(recognizedText)
+            val hint = ocrActionPolicy.analyze(recognizedText)
 
-            // Reject protected/ambiguous text before spending work on visual verification.
-            if (ocrHint == OcrActionHint.PROTECTED || ocrHint == OcrActionHint.AMBIGUOUS) {
+            if (hint == OcrActionHint.PROTECTED) {
+                logDeny("ocr_policy", "protected_label_detected")
+                return@mapNotNull null
+            }
+            if (hint == OcrActionHint.AMBIGUOUS) {
+                logDeny("ocr_policy", "ambiguous_label_detected")
                 return@mapNotNull null
             }
 
-            val crop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
-            try {
-                val pixels = IntArray(crop.width * crop.height)
-                crop.getPixels(pixels, 0, crop.width, 0, 0, crop.width, crop.height)
-                val visualMatch = visualActionDetector.detect(
-                    VisualFrame(crop.width, crop.height, pixels)
-                )
-                if (!ocrActionPolicy.canVerifyCandidate(ocrHint, visualMatch.type)) {
-                    null
-                } else {
-                    VerifiedOcrCandidate(
-                        node = candidate,
-                        action = visualMatch.type,
-                        confidence = visualMatch.confidence,
-                        ocrHint = ocrHint
-                    )
+            val symbolDiscovery = if (hint == OcrActionHint.NO_TEXT) {
+                val crop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+                try {
+                    val pixels = IntArray(crop.width * crop.height)
+                    crop.getPixels(pixels, 0, crop.width, 0, 0, crop.width, crop.height)
+                    visualActionDetector.detect(VisualFrame(crop.width, crop.height, pixels)).type
+                } finally {
+                    crop.recycle()
                 }
-            } finally {
-                crop.recycle()
+            } else {
+                VisualActionType.UNKNOWN
             }
+
+            val action = ocrActionPolicy.resolveCandidate(recognizedText, symbolDiscovery)
+            if (action == null) {
+                if (hint == OcrActionHint.NO_TEXT) {
+                    logDeny("symbol_discovery", "no_supported_symbol_found")
+                }
+                return@mapNotNull null
+            }
+
+            DetectedActionCandidate(
+                node = candidate,
+                action = action,
+                confidence = if (hint == OcrActionHint.NO_TEXT) 0.90f else 1.0f,
+                ocrHint = hint
+            )
         }.toList()
 
-        return verified.maxByOrNull { it.confidence }
+        if (eligible.size > 1) {
+            logDeny("candidate", "multiple_eligible_controls_count=${eligible.size}")
+            return null
+        }
+        return eligible.singleOrNull()
     }
 
-    private fun authorizeOcrAssistedAction(
+    private fun authorizeDetectedAction(
         snapshot: AccessibilitySnapshot,
         previous: AccessibilitySnapshot?,
         targetNode: StructuralNodeMetadata,
-        visualAction: VisualActionType,
+        action: VisualActionType,
         ocrHint: OcrActionHint,
         requestId: Long
     ) {
-        if (!screenshotLifecycle.isCurrent(requestId)) return
-        if (!ocrActionPolicy.canVerifyCandidate(ocrHint, visualAction)) return
-        val verifiedState = adStateClassifier.classify(
+        if (!screenshotLifecycle.isCurrent(requestId)) {
+            logDeny("authorization", "stale_screenshot_request")
+            return
+        }
+        if (action !in APPROVED_VISUAL_ACTIONS) {
+            logDeny("authorization", "action_not_approved")
+            return
+        }
+        Log.i(TAG, "candidate_detected action=$action source=$ocrHint")
+        val detectedState = adStateClassifier.classify(
             snapshot,
             System.currentTimeMillis(),
             previous,
-            hasVerifiedVisualAction = true
+            hasDetectedAction = true
         )
-        AdDetectionRepository.publish(verifiedState)
-        attemptVerifiedLiveClick(snapshot, targetNode, visualAction, verifiedState)
+        AdDetectionRepository.publish(detectedState)
+        attemptAuthorizedLiveClick(snapshot, targetNode, action, detectedState)
     }
 
-    private fun attemptVerifiedLiveClick(
+    private fun attemptAuthorizedLiveClick(
         snapshot: AccessibilitySnapshot,
         targetNode: StructuralNodeMetadata,
-        type: VisualActionType,
+        action: VisualActionType,
         adState: AdState
     ) {
-        if (snapshot.packageName != TARGET_PACKAGE) return
-        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())) return
-        if (type !in APPROVED_VISUAL_ACTIONS) return
+        if (snapshot.packageName != TARGET_PACKAGE) {
+            logDeny("package", "wrong_snapshot_package_before_click")
+            return
+        }
+        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())) {
+            logDeny("freshness", "snapshot_stale_before_live_lookup")
+            return
+        }
+        if (action !in APPROVED_VISUAL_ACTIONS) {
+            logDeny("click_authorization", "unsupported_action=$action")
+            return
+        }
 
         val uiState = snapshot.windowClassName to snapshot.structuralNodes
         if (uiState != lastActionableUiState) {
@@ -477,16 +534,23 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             attemptedControlKeys.clear()
         }
         val identityKey = listOf(
-            type.name,
+            action.name,
             targetNode.viewClassName.orEmpty(),
             targetNode.text.orEmpty().trim().lowercase(),
-            targetNode.contentDescription.orEmpty().trim().lowercase(),
-            targetNode.childCount.toString()
+            targetNode.contentDescription.orEmpty().trim().lowercase()
         ).joinToString("|")
-        if (identityKey in attemptedControlKeys) return
+        if (identityKey in attemptedControlKeys) {
+            logDeny("one_attempt_guard", "control_already_attempted")
+            return
+        }
 
-        val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow
+        if (root == null) {
+            logDeny("live_accessibility", "active_window_root_missing")
+            return
+        }
         if (root.packageName?.toString() != TARGET_PACKAGE) {
+            logDeny("live_accessibility", "active_window_package_mismatch")
             root.recycle()
             return
         }
@@ -500,13 +564,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 val node = pending.removeFirst()
                 val rect = Rect()
                 node.getBoundsInScreen(rect)
-                val bounds = ScreenBounds(rect.left, rect.top, rect.right, rect.bottom)
                 liveNodes += node
                 liveMetadata += StructuralNodeMetadata(
                     viewClassName = node.className?.toString(),
                     resourceId = null,
                     clickable = node.isClickable,
-                    bounds = bounds,
+                    bounds = ScreenBounds(rect.left, rect.top, rect.right, rect.bottom),
                     enabled = node.isEnabled,
                     visible = node.isVisibleToUser,
                     text = node.text?.toString(),
@@ -521,14 +584,40 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
             val selectedIndex = accessibilityNodeMatcher.findUniqueMatch(targetNode, liveMetadata)
             val selected = selectedIndex?.let(liveNodes::get)
-            if (selected != null && actionExecutionPolicy.canClick(adState, type)) {
-                attemptedControlKeys += identityKey
-                selected.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (selected == null) {
+                logDeny("live_accessibility", "no_unique_live_node_match")
+                return
+            }
+            if (snapshot.packageName != TARGET_PACKAGE ||
+                !AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())
+            ) {
+                logDeny("freshness", "snapshot_stale_at_final_click_gate")
+                return
+            }
+            if (!selected.isVisibleToUser || !selected.isEnabled || !selected.isClickable) {
+                logDeny("live_accessibility", "selected_node_not_visible_enabled_clickable")
+                return
+            }
+            if (!actionExecutionPolicy.canClick(adState, action)) {
+                logDeny("click_authorization", "policy_denied_state=$adState action=$action")
+                return
+            }
+
+            attemptedControlKeys += identityKey
+            val clicked = selected.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (clicked) {
+                Log.i(TAG, "click_dispatched action=$action source_live_accessibility=true")
+            } else {
+                logDeny("perform_action", "accessibility_action_click_returned_false")
             }
         } finally {
             liveNodes.forEach { it.recycle() }
             while (pending.isNotEmpty()) pending.removeFirst().recycle()
         }
+    }
+
+    private fun logDeny(stage: String, reason: String) {
+        Log.i(TAG, "click_denied stage=$stage reason=$reason")
     }
 
     private fun collectStructuralNodes(root: AccessibilityNodeInfo?): List<StructuralNodeMetadata> {
@@ -565,6 +654,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     private companion object {
+        const val TAG = "SmartAdSkip"
         const val MAX_NODES_PER_EVENT = 200
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         val APPROVED_VISUAL_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
