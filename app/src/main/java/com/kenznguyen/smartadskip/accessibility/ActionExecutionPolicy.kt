@@ -3,10 +3,18 @@ package com.kenznguyen.smartadskip.accessibility
 import com.kenznguyen.smartadskip.detection.AdState
 
 /**
- * The classifier is the sole authority for ad-context evidence.
- * Visual matches and Resource IDs cannot independently authorize a click.
+ * Ad-state UNKNOWN is not an independent denial when a supported visual action
+ * has already passed temporal verification. Completed contexts remain blocked.
  */
 class ActionExecutionPolicy {
-    fun canClick(adState: AdState): Boolean =
-        adState == AdState.AD_PLAYING || adState == AdState.SKIP_AVAILABLE
+    fun canClick(adState: AdState, verifiedAction: VisualActionType): Boolean =
+        adState != AdState.AD_COMPLETED &&
+            verifiedAction in APPROVED_VISUAL_ACTIONS
+
+    private companion object {
+        val APPROVED_VISUAL_ACTIONS = setOf(
+            VisualActionType.NEXT_AD,
+            VisualActionType.CLOSE
+        )
+    }
 }
