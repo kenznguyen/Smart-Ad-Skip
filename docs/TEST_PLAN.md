@@ -63,3 +63,15 @@ Initial target: Fruit Blast (`com.funnyvideo.cgame.fruitblast`) on a physical An
 - [x] Freshness, package, live Accessibility, Click Authorization, completed-ad block and one-attempt guard remain mandatory.
 - [x] Denial logs identify the stage and reason.
 - [ ] Validate OCR text buttons, symbol-only `>>` and `X`, protected CTA labels, and deny logs on a physical Fruit Blast device.
+
+
+## P2.17 — Close-Only candidate discovery and authorization
+
+- [x] OCR recognizes only `X`, `Close` and `Dismiss` as candidate labels.
+- [x] `Next`, `Skip` and `>>` never resolve to an action.
+- [x] Pixel detector recognizes the X-on-neutral-circle pattern only; former yellow double-chevron pattern returns UNKNOWN.
+- [x] Execution policy permits CLOSE only and blocks legacy NEXT_AD, UNKNOWN and AD_COMPLETED.
+- [x] Protected labels and ambiguous text reject; symbol-only candidate requires positive X detection.
+- [x] Exact package, Freshness Guard, live Accessibility matching, visible/enabled/clickable checks, one-attempt guard and final ACTION_CLICK remain required.
+- [ ] CI: unit tests and debug APK build.
+- [ ] Physical Fruit Blast validation: close button X detection, Close/Dismiss text, protected CTA rejection, live node match and denial logs.
