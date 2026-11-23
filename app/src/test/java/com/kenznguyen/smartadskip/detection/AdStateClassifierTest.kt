@@ -11,8 +11,15 @@ class AdStateClassifierTest {
     private val now = 1_800_000_000_000L
 
     @Test
-    fun verifiedVisualActionEstablishesSkipAvailableWithoutResourceIds() {
-        val current = snapshot(nodes = listOf(node(resourceId = null, clickable = true)))
+    fun visualActionAloneCannotEstablishAdContext() {
+        val current = snapshot(nodes = listOf(node(null, clickable = true)))
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, hasVerifiedVisualAction = true))
+    }
+
+    @Test
+    fun verifiedVisualActionIsAllowedOnlyInsideKnownAdSdkActivity() {
+        val current = snapshot(nodes = listOf(node(null, clickable = true)))
+            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         assertEquals(AdState.SKIP_AVAILABLE, classifier.classify(current, now, hasVerifiedVisualAction = true))
     }
 
