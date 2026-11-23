@@ -60,6 +60,7 @@ class OcrActionPolicyTest {
     fun ocrNeverAuthorizesUnknownVisualAction() {
         assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.NEXT_AD))
         assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.CLOSE))
-        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.UNKNOWN))
+        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.NO_TEXT))
+        assertFalse(policy.canProceed(VisualActionType.UNKNOWN, OcrActionHint.AMBIGUOUS))
     }
 }
