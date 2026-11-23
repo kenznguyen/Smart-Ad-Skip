@@ -98,6 +98,17 @@ private fun AccessibilityMonitorScreen() {
         } else {
             Text("Baseline / insufficient fresh same-package history", style = MaterialTheme.typography.bodySmall)
         }
+        Text("Temporal pattern diagnostics (max 10 samples)", style = MaterialTheme.typography.titleSmall)
+        val temporal = snapshot?.temporalPattern
+        if (temporal?.historyAvailable == true) {
+            Text("Samples: ${temporal.sampleCount}", style = MaterialTheme.typography.bodySmall)
+            Text("Window transitions: ${temporal.windowTransitionCount}", style = MaterialTheme.typography.bodySmall)
+            Text("Observed span: ${temporal.observedSpanMillis} ms", style = MaterialTheme.typography.bodySmall)
+            Text("Current window stable: ${temporal.currentWindowStableMillis} ms", style = MaterialTheme.typography.bodySmall)
+        } else {
+            Text("Waiting for fresh same-package temporal baseline", style = MaterialTheme.typography.bodySmall)
+        }
+        Text("Temporal metrics are diagnostic only; they never establish ad state.", style = MaterialTheme.typography.bodySmall)
         Text("Structural diagnostics (max 20)", style = MaterialTheme.typography.titleSmall)
         if (diagnosticNodes.isEmpty()) {
             Text("No structural metadata available", style = MaterialTheme.typography.bodySmall)
