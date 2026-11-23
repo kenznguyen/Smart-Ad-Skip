@@ -183,14 +183,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (snapshot.packageName != TARGET_PACKAGE) return
         if (System.currentTimeMillis() - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
         if (type !in APPROVED_VISUAL_ACTIONS) return
-        if (!actionExecutionPolicy.canClick(
-                adState,
-                snapshot.windowClassName,
-                previousSnapshot?.windowClassName,
-                currentHasRewardedMarker = false,
-                previousHasRewardedMarker = false
-            )
-        ) return
+        if (!actionExecutionPolicy.canClick(adState)) return
 
         val uiState = snapshot.windowClassName to snapshot.structuralNodes
         if (uiState != lastActionableUiState) {
