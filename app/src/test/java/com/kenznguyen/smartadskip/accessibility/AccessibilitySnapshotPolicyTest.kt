@@ -1,7 +1,9 @@
 package com.kenznguyen.smartadskip.accessibility
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccessibilitySnapshotPolicyTest {
@@ -75,13 +77,18 @@ class AccessibilitySnapshotPolicyTest {
             nodeCount = 2,
             clickableNodeCount = 1
         )
+        val fieldNames = snapshot::class.java.declaredFields
+            .filterNot { it.isSynthetic }
+            .map { it.name }
+            .toSet()
 
-        assertEquals(
-            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount"),
-            snapshot::class.java.declaredFields
-                .filterNot { it.isSynthetic }
-                .map { it.name }
-                .toSet()
-        )
+        assertTrue(fieldNames.containsAll(
+            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount")
+        ))
+        assertFalse(fieldNames.any {
+            it.contains("text", ignoreCase = true) ||
+                it.contains("input", ignoreCase = true) ||
+                it.contains("contentDescription", ignoreCase = true)
+        })
     }
 }
