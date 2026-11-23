@@ -72,7 +72,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     System.currentTimeMillis()
                 )
                 val adState = if (fresh) state.name else "UNKNOWN · STALE"
-                "Monitor: CONNECTED\\nAd state: $adState\\nPackage: ${snapshot?.packageName ?: "—"}"
+                "Monitor: CONNECTED\nAd state: $adState\nPackage: ${snapshot?.packageName ?: "—"}"
             }.collect { overlayStatus?.text = it }
         }
     }
@@ -139,7 +139,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val status = TextView(this).apply {
-            text = "Monitor: CONNECTED\\nAd state: UNKNOWN"
+            text = "Monitor: CONNECTED\nAd state: UNKNOWN"
             setTextColor(Color.WHITE)
             textSize = 12f
             setPadding(4, 4, 4, 8)
