@@ -60,7 +60,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var overlayRoot: LinearLayout? = null
     private var overlayStatus: TextView? = null
     private var overlayDetails: LinearLayout? = null
-    private var overlayParams: WindowManager.LayoutParams? = null
     private var overlayWindowManager: WindowManager? = null
     private var overlayCollapsed = true
 
@@ -261,14 +260,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             overlayRoot = root
             overlayStatus = status
             overlayDetails = details
-            overlayParams = params
             overlayWindowManager = windowManager
             setOverlayCollapsed(preferences.getBoolean("collapsed", true))
         } catch (_: RuntimeException) {
             overlayRoot = null
             overlayStatus = null
             overlayDetails = null
-            overlayParams = null
             overlayWindowManager = null
         }
     }
@@ -291,7 +288,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         overlayRoot = null
         overlayStatus = null
         overlayDetails = null
-        overlayParams = null
         overlayWindowManager = null
         overlayCollapsed = true
     }
