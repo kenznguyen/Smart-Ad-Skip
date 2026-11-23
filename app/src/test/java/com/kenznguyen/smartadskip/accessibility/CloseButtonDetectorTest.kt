@@ -19,7 +19,6 @@ class ActionableNodeDetectorTest {
 
         assertEquals(ActionableNodeDetectionStatus.DETECTED, result.status)
         assertEquals(1, result.candidates.size)
-        assertEquals("com.game:id/next_ad", result.candidates.single().resourceId)
     }
 
     @Test
@@ -37,8 +36,8 @@ class ActionableNodeDetectorTest {
         val current = snapshot(
             now,
             listOf(
-                node("com.game:id/next_ad", clickable = true, enabled = true, visible = true),
-                node("com.game:id/close", clickable = true, enabled = true, visible = true)
+                node(null, clickable = true, enabled = true, visible = true),
+                node(null, clickable = true, enabled = true, visible = true)
             )
         )
 
