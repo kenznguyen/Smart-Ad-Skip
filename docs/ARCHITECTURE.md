@@ -12,7 +12,7 @@ For at most 200 nodes per Accessibility event, the service reads only:
 - Clickable flag
 - Screen bounds (left, top, right, bottom)
 
-The existing package, event, window, node-count and timestamp fields remain. No node text, content description, input value, password, screenshot, OCR, gesture or click data is read or stored. Structural snapshots remain in memory only.
+The Accessibility service enables Android's `flagReportViewIds` so Resource IDs can be exposed where the target app provides them. The existing package, event, window, node-count and timestamp fields remain. No node text, content description, input value, password, screenshot, OCR, gesture or click data is read or stored. Structural snapshots remain in memory only.
 
 ### State classification
 
