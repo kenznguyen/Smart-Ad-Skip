@@ -10,18 +10,27 @@ enum class AdState {
     UNKNOWN
 }
 
+/**
+ * Conservative, observe-only classifier for the current Fruit Blast validation target.
+ * Events from System UI and screen-recorder packages are deliberately excluded.
+ */
 class AdStateClassifier(
-    private val staleAfterMillis: Long = 15_000L
+    private val staleAfterMillis: Long = 15_000L,
+    private val targetPackageName: String = TARGET_APP_PACKAGE
 ) {
+    fun isRelevantPackage(packageName: String?): Boolean =
+        packageName == targetPackageName
+
     fun classify(
         current: AccessibilitySnapshot,
         nowEpochMillis: Long,
         previous: AccessibilitySnapshot? = null
     ): AdState {
+        if (!isRelevantPackage(current.packageName)) return AdState.UNKNOWN
         if (!isFresh(current.observedAtEpochMillis, nowEpochMillis)) return AdState.UNKNOWN
         if (current.structuralNodes.isEmpty()) return AdState.UNKNOWN
 
-        if (isMbridgeRewardVideoActivity(current)) return AdState.AD_PLAYING
+        if (isKnownRewardedAdActivity(current.windowClassName)) return AdState.AD_PLAYING
 
         val hasAdContainer = current.structuralNodes.any(::isAdContainer)
         val hasSkipControl = current.structuralNodes.any(::isSkipControl)
@@ -31,10 +40,12 @@ class AdStateClassifier(
 
         if (previous != null &&
             previous.packageName == current.packageName &&
-            previous.packageName != null &&
+            isRelevantPackage(previous.packageName) &&
             previous.observedAtEpochMillis < current.observedAtEpochMillis &&
             isFresh(previous.observedAtEpochMillis, nowEpochMillis) &&
-            previous.structuralNodes.any(::isAdContainer)
+            previous.structuralNodes.isNotEmpty() &&
+            (previous.structuralNodes.any(::isAdContainer) ||
+                isKnownRewardedAdActivity(previous.windowClassName))
         ) {
             return AdState.AD_COMPLETED
         }
@@ -42,9 +53,8 @@ class AdStateClassifier(
         return AdState.UNKNOWN
     }
 
-    private fun isMbridgeRewardVideoActivity(snapshot: AccessibilitySnapshot): Boolean =
-        snapshot.packageName != null &&
-            snapshot.windowClassName == MBRIDGE_REWARD_VIDEO_ACTIVITY
+    private fun isKnownRewardedAdActivity(windowClassName: String?): Boolean =
+        windowClassName in REWARDED_AD_ACTIVITY_CLASSES
 
     private fun isFresh(timestamp: Long, now: Long): Boolean {
         val age = now - timestamp
@@ -62,7 +72,14 @@ class AdStateClassifier(
     }
 
     private companion object {
-        const val MBRIDGE_REWARD_VIDEO_ACTIVITY = "com.mbridge.msdk.reward.player.MBRewardVideoActivity"
+        const val TARGET_APP_PACKAGE = "com.funnyvideo.cgame.fruitblast"
+        val REWARDED_AD_ACTIVITY_CLASSES = setOf(
+            "com.mbridge.msdk.reward.player.MBRewardVideoActivity",
+            "com.google.android.gms.ads.AdActivity",
+            "com.unity3d.services.ads.adunit.AdUnitActivity",
+            "com.applovin.adview.AppLovinFullscreenActivity",
+            "com.facebook.ads.AudienceNetworkActivity"
+        )
         val AD_RESOURCE_MARKERS = listOf("ad_container", "ad_view", "interstitial_ad", "rewarded_ad")
     }
 }
