@@ -39,6 +39,21 @@ class AccessibilityNodeMatcherTest {
     }
 
     @Test
+    fun toleratesAccessibilityChildTreeChangesForUnlabelledControl() {
+        val detected = node(
+            "android.widget.ImageButton",
+            null,
+            ScreenBounds(800, 100, 900, 200),
+            childCount = 0
+        )
+        val live = listOf(
+            node("android.widget.ImageButton", null, ScreenBounds(760, 120, 880, 220), childCount = 2)
+        )
+
+        assertEquals(0, matcher.findUniqueMatch(detected, live))
+    }
+
+    @Test
     fun rejectsAmbiguousIdenticalNodesInsteadOfGuessing() {
         val detected = node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200))
         val live = listOf(
