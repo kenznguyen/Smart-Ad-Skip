@@ -17,9 +17,9 @@ class OcrActionPolicy {
         val tokens = normalized.split(Regex("\\s+")).toSet()
         val protectedTokens = setOf(
             "install", "download", "buy", "purchase", "claim", "collect",
-            "reward", "shop", "sponsored"
+            "reward", "shop", "sponsored", "continue", "open", "visit", "subscribe"
         )
-        val protectedPhrases = listOf("play now", "learn more", "get started", "get it")
+        val protectedPhrases = listOf("play now", "learn more", "get started", "get it", "sign up", "watch now")
         if (tokens.any { it in protectedTokens } ||
             protectedPhrases.any { normalized.contains(it) }
         ) return OcrActionHint.PROTECTED
