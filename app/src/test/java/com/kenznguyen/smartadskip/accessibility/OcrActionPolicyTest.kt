@@ -28,14 +28,20 @@ class OcrActionPolicyTest {
 
     @Test
     fun treatsMissingOrUnrecognizedTextAsNeutralHint() {
-        assertEquals(OcrActionHint.UNKNOWN, policy.analyze(""))
-        assertEquals(OcrActionHint.UNKNOWN, policy.analyze("limited time offer"))
+        assertEquals(OcrActionHint.NO_TEXT, policy.analyze(""))
+        assertEquals(OcrActionHint.AMBIGUOUS, policy.analyze("limited time offer"))
     }
 
     @Test
     fun allowsSymbolOnlyVisualActionWhenOcrFindsNoText() {
-        assertTrue(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.UNKNOWN))
-        assertTrue(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.UNKNOWN))
+        assertTrue(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.NO_TEXT))
+        assertTrue(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.NO_TEXT))
+    }
+
+    @Test
+    fun rejectsUnclassifiedRecognizedText() {
+        assertFalse(policy.canProceed(VisualActionType.NEXT_AD, OcrActionHint.AMBIGUOUS))
+        assertFalse(policy.canProceed(VisualActionType.CLOSE, OcrActionHint.AMBIGUOUS))
     }
 
     @Test
