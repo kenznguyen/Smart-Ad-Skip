@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
-import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshotPolicy
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
 import java.time.Instant
@@ -49,107 +48,76 @@ private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
-    val currentSnapshot = snapshot
     val adState by AdDetectionRepository.state.collectAsState()
     val overlayRequested by OverlayRequestRepository.requested.collectAsState()
-    val nowMillis by produceState(initialValue = System.currentTimeMillis(), currentSnapshot?.observedAtEpochMillis) {
+    val nowMillis by produceState(initialValue = System.currentTimeMillis(), snapshot?.observedAtEpochMillis) {
         while (true) {
             value = System.currentTimeMillis()
             delay(1_000)
         }
     }
-    val snapshotAgeSeconds = currentSnapshot?.let {
+    val snapshotAgeSeconds = snapshot?.let {
         (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
-    } ?: 0L
-    val snapshotFresh = currentSnapshot != null && (nowMillis - currentSnapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
+    }
+    val snapshotFresh = snapshot != null &&
+        (nowMillis - snapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
+    val displayedAdState = if (snapshotFresh) adState.name else "UNKNOWN"
     val snapshotFreshness = when {
-        currentSnapshot == null -> "Waiting for first event"
+        snapshot == null -> "Waiting for first event"
         snapshotFresh -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
-    val diagnosticNodes = currentSnapshot?.let { AccessibilitySnapshotPolicy().diagnosticNodes(it) }.orEmpty()
-    val displayedAdState = if (!snapshotFresh) "UNKNOWN" else adState.name
-    val observedAt = currentSnapshot?.let {
+    val observedAt = snapshot?.let {
         EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(it.observedAtEpochMillis))
     } ?: "—"
+    val actionable = snapshot?.actionableNodes
+    val detectionStatus = when {
+        !isConnected -> "ACCESSIBILITY DISCONNECTED"
+        !snapshotFresh -> "STALE_SNAPSHOT"
+        else -> actionable?.status?.name ?: "WAITING"
+    }
+    val closeCandidates = if (snapshotFresh) actionable?.candidates.orEmpty() else emptyList()
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2.11 · Scrollable Dashboard + Floating Overlay", style = MaterialTheme.typography.titleMedium)
-        Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
+        Text("P2.17 · Close-Only Minimal", style = MaterialTheme.typography.titleMedium)
+
+        Text(
+            "Accessibility: ${if (isConnected) "Connected" else "Not enabled"}",
+            style = MaterialTheme.typography.bodyLarge
+        )
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
             Text("Open Accessibility Settings")
         }
+
         Button(onClick = { OverlayRequestRepository.setRequested(!overlayRequested) }) {
             Text(if (overlayRequested) "Hide Floating Overlay" else "Show Floating Overlay")
         }
-        Text("Floating overlay: ${if (overlayRequested) "Requested" else "Off"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
-        Text("Latest observed package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Window class: ${currentSnapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Event type: ${currentSnapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text(
-            "Structural nodes: ${currentSnapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${currentSnapshot?.clickableNodeCount?.toString() ?: "—"}",
+            "Floating overlay: ${if (overlayRequested) "Requested" else "Off"}",
             style = MaterialTheme.typography.bodyMedium
         )
-        Text("Actionable UI detection", style = MaterialTheme.typography.titleSmall)
-        val actionable = currentSnapshot?.actionableNodes
-        Text(
-            "Detection: ${if (snapshotFresh) actionable?.status?.name ?: "WAITING" else "STALE_SNAPSHOT"}",
-            style = MaterialTheme.typography.bodySmall
-        )
-        val candidates = if (snapshotFresh) actionable?.candidates.orEmpty() else emptyList()
-        if (candidates.isEmpty()) {
-            Text("No verified actionable controls in the latest currentSnapshot", style = MaterialTheme.typography.bodySmall)
-        } else {
-            candidates.forEachIndexed { index, candidate ->
-                Text(
-                    "${index + 1}. Visual candidate · bounds=${candidate.bounds}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-        Text("Visual actions: NEXT_AD / CLOSE · Strict Safety gated", style = MaterialTheme.typography.bodySmall)
-        Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
-        val transition = currentSnapshot?.structuralTransition
-        if (transition?.comparisonAvailable == true) {
-            Text("Window class changed: ${transition.windowClassChanged}", style = MaterialTheme.typography.bodySmall)
-            Text("Structural node delta: ${transition.structuralNodeDelta}", style = MaterialTheme.typography.bodySmall)
-            Text("Clickable node delta: ${transition.clickableNodeDelta}", style = MaterialTheme.typography.bodySmall)
-        } else {
-            Text("Baseline / insufficient fresh same-package history", style = MaterialTheme.typography.bodySmall)
-        }
-        Text("Temporal pattern diagnostics (max 10 samples)", style = MaterialTheme.typography.titleSmall)
-        val temporal = currentSnapshot?.temporalPattern
-        if (temporal?.historyAvailable == true) {
-            Text("Samples: ${temporal.sampleCount}", style = MaterialTheme.typography.bodySmall)
-            Text("Window transitions: ${temporal.windowTransitionCount}", style = MaterialTheme.typography.bodySmall)
-            Text("Observed span: ${temporal.observedSpanMillis} ms", style = MaterialTheme.typography.bodySmall)
-            Text("Current window stable: ${temporal.currentWindowStableMillis} ms", style = MaterialTheme.typography.bodySmall)
-        } else {
-            Text("Waiting for fresh same-package temporal baseline", style = MaterialTheme.typography.bodySmall)
-        }
-        Text("Temporal metrics are diagnostic only; they never establish ad state.", style = MaterialTheme.typography.bodySmall)
-        Text("Structural diagnostics (max 20)", style = MaterialTheme.typography.titleSmall)
-        if (diagnosticNodes.isEmpty()) {
-            Text("No structural metadata available", style = MaterialTheme.typography.bodySmall)
-        } else {
-            diagnosticNodes.forEachIndexed { index, node ->
-                Text(
-                    "${index + 1}. ${node.viewClassName ?: "—"} · ${node.resourceId ?: "no resource id"} · clickable=${node.clickable} · enabled=${node.enabled} · visible=${node.visible}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
+
+        Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
+        Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
-        Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
-        Text("Safety: Strict · No ad-surface, CTA, reward, unknown or completed-context clicks", style = MaterialTheme.typography.bodyMedium)
-        Text("Text, content descriptions, input values, screenshots and OCR are not collected.", style = MaterialTheme.typography.bodySmall)
+        Text("Snapshot freshness: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
+
+        Text("Close button detection", style = MaterialTheme.typography.titleSmall)
+        Text("Detection status: $detectionStatus", style = MaterialTheme.typography.bodyMedium)
+        Text("Close candidates: ${closeCandidates.size}", style = MaterialTheme.typography.bodyMedium)
+        Text("Allowed action: CLOSE only (X / Close / Dismiss)", style = MaterialTheme.typography.bodyMedium)
+
+        Text("Click authorization", style = MaterialTheme.typography.titleSmall)
+        Text("Strict Safety: enabled · Fail-closed", style = MaterialTheme.typography.bodyMedium)
+        Text("Guards: Freshness · Target package · Live Accessibility node", style = MaterialTheme.typography.bodySmall)
+        Text("Execution: Accessibility ACTION_CLICK only · No coordinate taps", style = MaterialTheme.typography.bodySmall)
+        Text("Repeated attempts: One attempt per state", style = MaterialTheme.typography.bodySmall)
     }
 }
 
