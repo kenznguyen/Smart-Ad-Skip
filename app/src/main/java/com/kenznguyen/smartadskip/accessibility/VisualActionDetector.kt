@@ -7,7 +7,7 @@ package com.kenznguyen.smartadskip.accessibility
  * inspect text, resource IDs, content descriptions, or coordinates outside that crop.
  * Low-confidence or ambiguous crops return UNKNOWN.
  */
-enum class VisualActionType { CLOSE, UNKNOWN }
+enum class VisualActionType { NEXT_AD, CLOSE, UNKNOWN }
 
 data class VisualFrame(
     val width: Int,
