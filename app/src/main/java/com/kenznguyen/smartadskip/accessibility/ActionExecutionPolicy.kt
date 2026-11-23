@@ -4,21 +4,25 @@ import com.kenznguyen.smartadskip.detection.AdState
 
 /**
  * Allows clicks only while a recognized ad is actively on screen.
- * Unknown/completed contexts and known rewarded-video activities are blocked.
+ * Unknown/completed contexts and known rewarded-video contexts are blocked.
  */
 class ActionExecutionPolicy {
     fun canClick(
         adState: AdState,
         currentWindowClassName: String?,
-        previousWindowClassName: String?
+        previousWindowClassName: String?,
+        currentHasRewardedMarker: Boolean,
+        previousHasRewardedMarker: Boolean
     ): Boolean {
-        if (adState !in setOf(AdState.AD_PLAYING, AdState.SKIP_AVAILABLE)) return false
+        if (adState !in ACTIVE_AD_STATES) return false
         if (currentWindowClassName in REWARDED_AD_ACTIVITY_CLASSES) return false
         if (previousWindowClassName in REWARDED_AD_ACTIVITY_CLASSES) return false
+        if (currentHasRewardedMarker || previousHasRewardedMarker) return false
         return true
     }
 
     private companion object {
+        val ACTIVE_AD_STATES = setOf(AdState.AD_PLAYING, AdState.SKIP_AVAILABLE)
         val REWARDED_AD_ACTIVITY_CLASSES = setOf(
             "com.mbridge.msdk.reward.player.MBRewardVideoActivity",
             "com.google.android.gms.ads.AdActivity",
