@@ -37,6 +37,7 @@ class ActionableControlPolicyTest {
     fun unknownOrMissingResourceIdsAreNeverClickable() {
         assertEquals(ActionableControlType.UNKNOWN, policy.classify(null))
         assertEquals(ActionableControlType.UNKNOWN, policy.classify("com.game:id/button_17"))
+        assertEquals(ActionableControlType.UNKNOWN, policy.classify("com.game:id/next_button"))
     }
 
     @Test
