@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
+import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -44,6 +45,7 @@ private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
+    val adState by AdDetectionRepository.state.collectAsState()
     val nowMillis by produceState(initialValue = System.currentTimeMillis(), snapshot?.observedAtEpochMillis) {
         while (true) {
             value = System.currentTimeMillis()
@@ -67,24 +69,25 @@ private fun AccessibilityMonitorScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P1 · Accessibility Monitor", style = MaterialTheme.typography.titleMedium)
+        Text("P2 · Ad State Detection", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
             Text("Open Accessibility Settings")
         }
+        Text("Detected ad state: ${adState.name}", style = MaterialTheme.typography.bodyLarge)
         Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Window class: ${snapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Event type: ${snapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text(
-            "UI nodes: ${snapshot?.nodeCount?.toString() ?: "—"} · Clickable nodes: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
+            "Structural nodes: ${snapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
         Text("Safety: Strict · Observe only · No automatic actions", style = MaterialTheme.typography.bodyMedium)
-        Text("On-screen text and input values are not collected.", style = MaterialTheme.typography.bodySmall)
+        Text("Text, content descriptions, input values, screenshots and OCR are not collected.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
