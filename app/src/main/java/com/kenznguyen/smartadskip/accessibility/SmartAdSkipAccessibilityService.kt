@@ -15,6 +15,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
     private val actionableNodeDetector = ActionableNodeDetector()
     private val actionableControlPolicy = ActionableControlPolicy()
+    private val actionExecutionPolicy = ActionExecutionPolicy()
     private var previousSnapshot: AccessibilitySnapshot? = null
     private var lastActionableUiState: Pair<String?, List<StructuralNodeMetadata>>? = null
     private val attemptedControlKeys = mutableSetOf<String>()
@@ -46,11 +47,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             temporalPattern = temporalPatternAnalyzer.record(baseSnapshot),
             actionableNodes = actionableNodeDetector.detect(baseSnapshot, now)
         )
-        val state = adStateClassifier.classify(snapshot, now, previousSnapshot)
+        val priorSnapshot = previousSnapshot
+        val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
         AdDetectionRepository.publish(state)
         previousSnapshot = snapshot
         AccessibilityMonitorRepository.publish(snapshot)
-        attemptApprovedClick(snapshot, now)
+        attemptApprovedClick(snapshot, now, state, priorSnapshot)
     }
 
     override fun onInterrupt() = Unit
@@ -79,9 +81,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
      * The live node is revalidated immediately before ACTION_CLICK; no coordinates or
      * inferred visual semantics are used.
      */
-    private fun attemptApprovedClick(snapshot: AccessibilitySnapshot, now: Long) {
+    private fun attemptApprovedClick(
+        snapshot: AccessibilitySnapshot,
+        now: Long,
+        adState: com.kenznguyen.smartadskip.detection.AdState,
+        previous: AccessibilitySnapshot?
+    ) {
         if (snapshot.packageName != TARGET_PACKAGE) return
         if (now - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
+        if (!actionExecutionPolicy.canClick(adState, snapshot.windowClassName, previous?.windowClassName)) return
         if (snapshot.actionableNodes?.status != ActionableNodeDetectionStatus.DETECTED) return
 
         val uiState = snapshot.windowClassName to snapshot.structuralNodes
