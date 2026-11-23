@@ -364,7 +364,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     /**
      * OCR is scoped to the exact visual candidate's Accessibility bounds. Recognized
-     * protected or conflicting text vetoes the action; missing/failed OCR is neutral
+     * protected or conflicting text vetoes the action; unreadable or failed OCR is denied
      * and leaves all existing visual, freshness, live-node and authorization guards intact.
      */
     private fun runOcrAndAttemptVerifiedClick(
@@ -380,7 +380,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             try {
                 authorizeOcrAssistedAction(
                     snapshot, previous, targetBounds, confirmedAction,
-                    OcrActionHint.UNKNOWN, requestId
+                    OcrActionHint.AMBIGUOUS, requestId
                 )
             } finally {
                 bitmap.recycle()
@@ -417,7 +417,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     if (screenshotLifecycle.isCurrent(requestId)) {
                         authorizeOcrAssistedAction(
                             snapshot, previous, targetBounds, confirmedAction,
-                            OcrActionHint.UNKNOWN, requestId
+                            OcrActionHint.AMBIGUOUS, requestId
                         )
                     }
                 } finally {
