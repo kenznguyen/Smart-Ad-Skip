@@ -5,7 +5,8 @@ data class AccessibilitySnapshot(
     val eventType: Int,
     val windowClassName: String?,
     val nodeCount: Int,
-    val clickableNodeCount: Int
+    val clickableNodeCount: Int,
+    val observedAtEpochMillis: Long
 )
 
 class AccessibilitySnapshotPolicy {
@@ -14,18 +15,17 @@ class AccessibilitySnapshotPolicy {
         eventType: Int,
         windowClassName: CharSequence?,
         nodeCount: Int,
-        clickableNodeCount: Int
+        clickableNodeCount: Int,
+        observedAtEpochMillis: Long = System.currentTimeMillis()
     ): AccessibilitySnapshot {
         val safeNodeCount = nodeCount.coerceIn(0, MAX_NODE_COUNT)
         return AccessibilitySnapshot(
             packageName = packageName?.trim()?.takeIf(String::isNotEmpty),
             eventType = eventType,
-            windowClassName = windowClassName
-                ?.toString()
-                ?.trim()
-                ?.takeIf(String::isNotEmpty),
+            windowClassName = windowClassName?.toString()?.trim()?.takeIf(String::isNotEmpty),
             nodeCount = safeNodeCount,
-            clickableNodeCount = clickableNodeCount.coerceIn(0, safeNodeCount)
+            clickableNodeCount = clickableNodeCount.coerceIn(0, safeNodeCount),
+            observedAtEpochMillis = observedAtEpochMillis.coerceAtLeast(0L)
         )
     }
 
