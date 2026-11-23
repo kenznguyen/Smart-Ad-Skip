@@ -51,7 +51,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var overlayRoot: LinearLayout? = null
     private var overlayStatus: TextView? = null
-    private var overlayDetails: LinearLayout? = null
     private var overlayCollapsed = false
 
     override fun onServiceConnected() {
@@ -199,12 +198,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             windowManager.addView(root, params)
             overlayRoot = root
             overlayStatus = status
-            overlayDetails = details
             overlayCollapsed = false
         } catch (_: RuntimeException) {
             overlayRoot = null
             overlayStatus = null
-            overlayDetails = null
         }
     }
 
@@ -214,8 +211,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         runCatching { windowManager.removeView(root) }
         overlayRoot = null
         overlayStatus = null
-        overlayDetails = null
-        overlayLayoutParams = null
         overlayCollapsed = false
     }
 
