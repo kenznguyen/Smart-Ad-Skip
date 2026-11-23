@@ -10,6 +10,20 @@ class AccessibilitySnapshotPolicyTest {
     private val policy = AccessibilitySnapshotPolicy()
 
     @Test
+    fun create_preservesEventTimestamp() {
+        val snapshot = policy.create(
+            packageName = "com.example.game",
+            eventType = 32,
+            windowClassName = "android.widget.FrameLayout",
+            nodeCount = 12,
+            clickableNodeCount = 3,
+            observedAtEpochMillis = 1_800_000_000_000L
+        )
+
+        assertEquals(1_800_000_000_000L, snapshot.observedAtEpochMillis)
+    }
+
+    @Test
     fun create_preservesSafeWindowMetadata() {
         val snapshot = policy.create(
             packageName = "com.example.game",
