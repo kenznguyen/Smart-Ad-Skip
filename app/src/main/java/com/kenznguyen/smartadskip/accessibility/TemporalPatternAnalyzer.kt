@@ -33,12 +33,14 @@ class TemporalPatternAnalyzer(
         val previousFresh = previous != null &&
             timestamp - previous.observedAtEpochMillis in 0..staleAfterMillis
 
-        if (!validPackage) {
+        if (!validPackage || !validTimestamp) {
             history.clear()
             return unavailable()
         }
 
-        if (!validTimestamp || (previous != null && !previousFresh)) {
+        // A valid but delayed sample becomes a new baseline; it is not compared
+        // with the stale history preceding it.
+        if (previous != null && !previousFresh) {
             history.clear()
         }
 
