@@ -25,6 +25,7 @@ import com.kenznguyen.smartadskip.detection.AdStateClassifier
 import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
 import com.kenznguyen.smartadskip.overlay.OverlayVisibilityPolicy
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.ArrayDeque
@@ -277,24 +278,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             }
                             try {
                                 if (screenshotLifecycle.isCurrent(requestId)) {
-                                    val detected = findVisualAction(snapshot, bitmap)
-                                    // VisualActionDetector rejects UNKNOWN and low-confidence
-                                    // matches. One fresh frame may proceed to OCR corroboration;
-                                    // live Accessibility and Click Authorization remain mandatory.
-                                    val detectedAction = detected?.second?.type
-                                    if (detected != null && detectedAction != null &&
-                                        detectedAction in APPROVED_VISUAL_ACTIONS
-                                    ) {
-                                        ownershipTransferredToOcr = true
-                                        runOcrAndAttemptVerifiedClick(
-                                            bitmap = bitmap,
-                                            snapshot = snapshot,
-                                            previous = previous,
-                                            targetBounds = detected.first,
-                                            visualAction = detectedAction,
-                                            requestId = requestId
-                                        )
-                                    }
+                                    // OCR runs first to identify candidate labels in each live
+                                    // Accessibility region. Visual Detection must then verify the
+                                    // same region before it can reach Click Authorization.
+                                    ownershipTransferredToOcr = true
+                                    runOcrFirstVerification(
+                                        bitmap = bitmap,
+                                        snapshot = snapshot,
+                                        previous = previous,
+                                        requestId = requestId
+                                    )
                                 }
                             } catch (_: RuntimeException) {
                                 // A failed frame must never reach visual authorization or clicking.
@@ -331,103 +324,120 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findVisualAction(
+    /**
+     * OCR-first candidate discovery. OCR text is scoped to each clickable Accessibility
+     * region; VisualActionDetector then verifies the exact same crop. NO_TEXT is the only
+     * neutral OCR result and still requires a positive visual match for symbol-only >> / X.
+     */
+    private fun runOcrFirstVerification(
+        bitmap: Bitmap,
         snapshot: AccessibilitySnapshot,
-        bitmap: Bitmap
-    ): Pair<ScreenBounds, VisualActionMatch>? {
+        previous: AccessibilitySnapshot?,
+        requestId: Long
+    ) {
+        val image = runCatching { InputImage.fromBitmap(bitmap, 0) }.getOrNull()
+        if (image == null) {
+            bitmap.recycle()
+            screenshotLifecycle.finish(requestId)
+            return
+        }
+
+        val task = runCatching { textRecognizer.process(image) }.getOrElse {
+            bitmap.recycle()
+            screenshotLifecycle.finish(requestId)
+            return
+        }
+        task.addOnSuccessListener(mainExecutor) { result ->
+            try {
+                if (!screenshotLifecycle.isCurrent(requestId)) return@addOnSuccessListener
+                val verified = findOcrFirstVerifiedAction(snapshot, bitmap, result.textBlocks)
+                if (verified != null) {
+                    authorizeOcrAssistedAction(
+                        snapshot = snapshot,
+                        previous = previous,
+                        targetBounds = verified.bounds,
+                        visualAction = verified.action,
+                        ocrHint = verified.ocrHint,
+                        requestId = requestId
+                    )
+                }
+            } finally {
+                bitmap.recycle()
+                screenshotLifecycle.finish(requestId)
+            }
+        }.addOnFailureListener(mainExecutor) {
+            // OCR failure is fail-closed; Visual Detection never runs as an independent fallback.
+            bitmap.recycle()
+            screenshotLifecycle.finish(requestId)
+        }
+    }
+
+    private data class VerifiedOcrCandidate(
+        val bounds: ScreenBounds,
+        val action: VisualActionType,
+        val confidence: Float,
+        val ocrHint: OcrActionHint
+    )
+
+    /**
+     * OCR selects a candidate first; pixels only verify that candidate. If OCR finds no
+     * text in a node, the node may still qualify as a symbol-only candidate, but only when
+     * the visual classifier positively recognizes NEXT_AD or CLOSE.
+     */
+    private fun findOcrFirstVerifiedAction(
+        snapshot: AccessibilitySnapshot,
+        bitmap: Bitmap,
+        textBlocks: List<Text.TextBlock>
+    ): VerifiedOcrCandidate? {
         val candidates = snapshot.structuralNodes
             .asSequence()
             .filter { it.clickable && it.enabled && it.visible && it.bounds.hasArea }
             .take(MAX_NODES_PER_EVENT)
-        val matches = candidates.mapNotNull { candidate ->
+
+        val verified = candidates.mapNotNull { candidate ->
             val left = candidate.bounds.left.coerceIn(0, bitmap.width)
             val top = candidate.bounds.top.coerceIn(0, bitmap.height)
             val right = candidate.bounds.right.coerceIn(0, bitmap.width)
             val bottom = candidate.bounds.bottom.coerceIn(0, bitmap.height)
             if (right <= left || bottom <= top) return@mapNotNull null
+
+            val target = Rect(left, top, right, bottom)
+            val recognizedText = textBlocks
+                .filter { block ->
+                    val box = block.boundingBox
+                    box != null && Rect.intersects(target, box)
+                }
+                .joinToString(" ") { it.text }
+            val ocrHint = ocrActionPolicy.analyze(recognizedText)
+
+            // Reject protected/ambiguous text before spending work on visual verification.
+            if (ocrHint == OcrActionHint.PROTECTED || ocrHint == OcrActionHint.AMBIGUOUS) {
+                return@mapNotNull null
+            }
+
             val crop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
             try {
                 val pixels = IntArray(crop.width * crop.height)
                 crop.getPixels(pixels, 0, crop.width, 0, 0, crop.width, crop.height)
-                val match = visualActionDetector.detect(VisualFrame(crop.width, crop.height, pixels))
-                if (match.type == VisualActionType.UNKNOWN) null
-                else Triple(candidate.bounds, match, match.confidence)
+                val visualMatch = visualActionDetector.detect(
+                    VisualFrame(crop.width, crop.height, pixels)
+                )
+                if (!ocrActionPolicy.canVerifyCandidate(ocrHint, visualMatch.type)) {
+                    null
+                } else {
+                    VerifiedOcrCandidate(
+                        bounds = candidate.bounds,
+                        action = visualMatch.type,
+                        confidence = visualMatch.confidence,
+                        ocrHint = ocrHint
+                    )
+                }
             } finally {
                 crop.recycle()
             }
         }.toList()
 
-        return matches.maxByOrNull { it.third }?.let { it.first to it.second }
-    }
-
-    /**
-     * OCR is scoped to the exact visual candidate's Accessibility bounds. Recognized
-     * protected or conflicting text vetoes the action; unreadable or failed OCR is denied
-     * and leaves all existing visual, freshness, live-node and authorization guards intact.
-     */
-    private fun runOcrAndAttemptVerifiedClick(
-        bitmap: Bitmap,
-        snapshot: AccessibilitySnapshot,
-        previous: AccessibilitySnapshot?,
-        targetBounds: ScreenBounds,
-        visualAction: VisualActionType,
-        requestId: Long
-    ) {
-        val image = runCatching { InputImage.fromBitmap(bitmap, 0) }.getOrNull()
-        if (image == null) {
-            try {
-                authorizeOcrAssistedAction(
-                    snapshot, previous, targetBounds, visualAction,
-                    OcrActionHint.AMBIGUOUS, requestId
-                )
-            } finally {
-                bitmap.recycle()
-                screenshotLifecycle.finish(requestId)
-            }
-            return
-        }
-
-        val recognitionTask = runCatching { textRecognizer.process(image) }.getOrElse {
-            bitmap.recycle()
-            screenshotLifecycle.finish(requestId)
-            return
-        }
-        recognitionTask
-            .addOnSuccessListener(mainExecutor) { result ->
-                try {
-                    if (!screenshotLifecycle.isCurrent(requestId)) return@addOnSuccessListener
-                    val target = Rect(
-                        targetBounds.left, targetBounds.top,
-                        targetBounds.right, targetBounds.bottom
-                    )
-                    val textInsideTarget = result.textBlocks
-                        .filter { block ->
-                            val box = block.boundingBox
-                            box != null && Rect.intersects(target, box)
-                        }
-                        .joinToString(" ") { it.text }
-                    authorizeOcrAssistedAction(
-                        snapshot, previous, targetBounds, visualAction,
-                        ocrActionPolicy.analyze(textInsideTarget), requestId
-                    )
-                } finally {
-                    bitmap.recycle()
-                    screenshotLifecycle.finish(requestId)
-                }
-            }
-            .addOnFailureListener(mainExecutor) {
-                try {
-                    if (screenshotLifecycle.isCurrent(requestId)) {
-                        authorizeOcrAssistedAction(
-                            snapshot, previous, targetBounds, visualAction,
-                            OcrActionHint.AMBIGUOUS, requestId
-                        )
-                    }
-                } finally {
-                    bitmap.recycle()
-                    screenshotLifecycle.finish(requestId)
-                }
-            }
+        return verified.maxByOrNull { it.confidence }
     }
 
     private fun authorizeOcrAssistedAction(
@@ -439,7 +449,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         requestId: Long
     ) {
         if (!screenshotLifecycle.isCurrent(requestId)) return
-        if (!ocrActionPolicy.canProceed(visualAction, ocrHint)) return
+        if (!ocrActionPolicy.canVerifyCandidate(ocrHint, visualAction)) return
         val verifiedState = adStateClassifier.classify(
             snapshot,
             System.currentTimeMillis(),
