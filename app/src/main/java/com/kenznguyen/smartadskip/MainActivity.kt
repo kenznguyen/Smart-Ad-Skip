@@ -56,15 +56,14 @@ private fun AccessibilityMonitorScreen() {
     val snapshotAgeSeconds = snapshot?.let {
         (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
     } ?: 0L
+    val snapshotFresh = snapshot != null && snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS
     val snapshotFreshness = when {
         snapshot == null -> "Waiting for first event"
-        snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS -> "Fresh · ${snapshotAgeSeconds}s ago"
+        snapshotFresh -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
     val diagnosticNodes = snapshot?.let { AccessibilitySnapshotPolicy().diagnosticNodes(it) }.orEmpty()
-    val displayedAdState = if (
-        snapshot == null || snapshotAgeSeconds > SNAPSHOT_STALE_AFTER_SECONDS
-    ) "UNKNOWN" else adState.name
+    val displayedAdState = if (!snapshotFresh) "UNKNOWN" else adState.name
     val observedAt = snapshot?.let {
         EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(it.observedAtEpochMillis))
     } ?: "—"
@@ -74,7 +73,7 @@ private fun AccessibilityMonitorScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2.4 · Ad Close Button Detection", style = MaterialTheme.typography.titleMedium)
+        Text("P2.4 · Actionable UI Detection", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -89,17 +88,24 @@ private fun AccessibilityMonitorScreen() {
             "Structural nodes: ${snapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
-        Text("Close button detection", style = MaterialTheme.typography.titleSmall)
-        val closeButton = snapshot?.closeButton
-        Text("Detection: ${closeButton?.status?.name ?: "WAITING"}", style = MaterialTheme.typography.bodySmall)
-        if (closeButton?.candidate != null && snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS) {
-            Text("Resource ID: ${closeButton.candidate.resourceId}", style = MaterialTheme.typography.bodySmall)
-            Text("View class: ${closeButton.candidate.viewClassName ?: "—"}", style = MaterialTheme.typography.bodySmall)
-            Text("Bounds: ${closeButton.candidate.bounds}", style = MaterialTheme.typography.bodySmall)
+        Text("Actionable UI detection", style = MaterialTheme.typography.titleSmall)
+        val actionable = snapshot?.actionableNodes
+        Text(
+            "Detection: ${if (snapshotFresh) actionable?.status?.name ?: "WAITING" else "STALE_SNAPSHOT"}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        val candidates = if (snapshotFresh) actionable?.candidates.orEmpty() else emptyList()
+        if (candidates.isEmpty()) {
+            Text("No verified actionable controls in the latest snapshot", style = MaterialTheme.typography.bodySmall)
         } else {
-            Text("No verified close button in the latest snapshot", style = MaterialTheme.typography.bodySmall)
+            candidates.forEachIndexed { index, candidate ->
+                Text(
+                    "${index + 1}. ${candidate.viewClassName ?: "—"} · ${candidate.resourceId ?: "no resource id"} · bounds=${candidate.bounds}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
-        Text("Detection only · No automatic click or gesture", style = MaterialTheme.typography.bodySmall)
+        Text("Detection is independent of ad state · No automatic click or gesture", style = MaterialTheme.typography.bodySmall)
         Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
         val transition = snapshot?.structuralTransition
         if (transition?.comparisonAvailable == true) {
@@ -126,7 +132,7 @@ private fun AccessibilityMonitorScreen() {
         } else {
             diagnosticNodes.forEachIndexed { index, node ->
                 Text(
-                    "${index + 1}. ${node.viewClassName ?: "—"} · ${node.resourceId ?: "no resource id"} · clickable=${node.clickable}",
+                    "${index + 1}. ${node.viewClassName ?: "—"} · ${node.resourceId ?: "no resource id"} · clickable=${node.clickable} · enabled=${node.enabled} · visible=${node.visible}",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
