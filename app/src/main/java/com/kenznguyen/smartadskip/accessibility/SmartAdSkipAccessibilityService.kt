@@ -4,13 +4,19 @@ import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.kenznguyen.smartadskip.detection.AdDetectionRepository
+import com.kenznguyen.smartadskip.detection.AdStateClassifier
 import java.util.ArrayDeque
 
 class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val snapshotPolicy = AccessibilitySnapshotPolicy()
+    private val adStateClassifier = AdStateClassifier()
+    private var previousSnapshot: AccessibilitySnapshot? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        previousSnapshot = null
+        AdDetectionRepository.reset()
         AccessibilityMonitorRepository.setConnected(true)
     }
 
@@ -18,28 +24,38 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (event == null) return
         val nodes = runCatching { collectStructuralNodes(rootInActiveWindow) }
             .getOrDefault(emptyList())
+        val now = System.currentTimeMillis()
         val snapshot = snapshotPolicy.create(
             packageName = event.packageName?.toString(),
             eventType = event.eventType,
             windowClassName = event.className,
             nodeCount = nodes.size,
             clickableNodeCount = nodes.count { it.clickable },
-            observedAtEpochMillis = System.currentTimeMillis(),
+            observedAtEpochMillis = now,
             structuralNodes = nodes
         )
+        val state = adStateClassifier.classify(snapshot, now, previousSnapshot)
+        AdDetectionRepository.publish(state)
+        previousSnapshot = snapshot
         AccessibilityMonitorRepository.publish(snapshot)
     }
 
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
-        AccessibilityMonitorRepository.setConnected(false)
+        resetMonitoringState()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        AccessibilityMonitorRepository.setConnected(false)
+        resetMonitoringState()
         super.onDestroy()
+    }
+
+    private fun resetMonitoringState() {
+        previousSnapshot = null
+        AdDetectionRepository.reset()
+        AccessibilityMonitorRepository.setConnected(false)
     }
 
     private fun collectStructuralNodes(root: AccessibilityNodeInfo?): List<StructuralNodeMetadata> {
