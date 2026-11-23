@@ -22,6 +22,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        // Ignore System UI, screen recorder and other unrelated event sources.
+        if (!adStateClassifier.isRelevantPackage(event.packageName?.toString())) return
         val nodes = runCatching { collectStructuralNodes(rootInActiveWindow) }
             .getOrDefault(emptyList())
         val now = System.currentTimeMillis()
