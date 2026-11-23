@@ -39,6 +39,14 @@
 - [ ] Confirm actual Fruit Blast ad frames expose one of the allowlisted signatures or semantic Resource IDs; otherwise retain UNKNOWN.
 - [x] No UI action, SDK callback, reward verification, text/OCR/screenshot collection is implemented.
 
+## P2.3.1 — Structural transition diagnostics
+
+- [x] Compare only fresh snapshots from the exact same target package.
+- [x] Report Window class changes and signed structural/clickable node-count deltas.
+- [x] Missing baseline, stale history and non-advancing timestamps produce unavailable diagnostics.
+- [x] Structural diagnostics do not independently change the ad classifier state.
+- [ ] Verify dashboard diagnostics across real ad appearance and return-to-game transitions on a physical device.
+
 ## Device validation
 
 Initial target: Fruit Blast (`com.funnyvideo.cgame.fruitblast`) on a physical Android device. CI does not replace device validation.
