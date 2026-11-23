@@ -10,29 +10,25 @@
 
 ## P1 — Accessibility Monitor
 
-- [x] Snapshot preserves only approved window metadata.
-- [x] Blank package and window class names are normalized to null.
+- [x] Snapshot preserves approved package/window metadata and timestamp.
 - [x] Node counts are clamped to 0–200.
-- [x] Clickable node count cannot exceed total node count.
-- [x] Snapshot model contains no UI text or input-value fields.
-- [x] Every snapshot carries an event-received timestamp.
-- [x] Dashboard displays the last event time and marks snapshots stale after 15 seconds.
 - [x] Disconnect clears the latest snapshot; reconnect accepts fresh events.
-- [x] Service is declared with the Android accessibility binding permission.
-- [x] Service only observes window state/windows/content-change events.
-- [x] Dashboard exposes service connection and latest metadata.
 - [x] No automatic Skip/Close action is implemented.
-- [ ] Validate timestamp refresh and stale indication on a physical Android device.
-- [ ] Validate service disconnect/reconnect behavior on the target device.
+- [ ] Validate timestamp refresh/stale indication and disconnect/reconnect on a physical device.
 
-## Planned detection and safety tests
+## P2 — Ad State Detection
 
-- [ ] Distinguish ad-playing, skip-available, ad-completed, and unknown states.
-- [ ] Unknown UI state never triggers an action.
-- [ ] Stop control prevents further actions.
-- [ ] A dismissed window alone never verifies reward completion.
-- [ ] Only explicitly permitted Skip/Close controls may be actionable.
+- [x] Structural metadata is limited to view class, Resource ID, clickable flag and screen bounds.
+- [x] Structural metadata is capped at 200 nodes per event.
+- [x] Ad container marker without Skip marker classifies as AD_PLAYING.
+- [x] A clickable Skip marker plus ad container classifies as SKIP_AVAILABLE.
+- [x] Clickable nodes alone do not prove Skip availability.
+- [x] AD_COMPLETED requires a prior ad marker and a subsequent non-empty tree in the same package.
+- [x] Empty trees, stale snapshots and insufficient evidence resolve to UNKNOWN.
+- [x] No UI action or reward verification is implemented.
+- [ ] Validate classifier behavior against Fruit Blast on a physical device.
+- [ ] Confirm resource-ID markers actually exist in target app; otherwise keep UNKNOWN.
 
 ## Device validation
 
-Initial target: Fruit Blast on a physical Android device. Device testing is a separate gate and must not be inferred from a successful CI build.
+Initial target: Fruit Blast (`com.funnyvideo.cgame.fruitblast`) on a physical Android device. CI does not replace device validation.
