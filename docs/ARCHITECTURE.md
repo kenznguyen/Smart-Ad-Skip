@@ -38,3 +38,14 @@ P2.3 remains detection-only. It does not call `performAction`, dispatch gestures
 ## Device validation
 
 CI does not replace physical-device validation. The video supplied for P2.3 shows unrelated System UI/Screen Recorder events interleaved with Fruit Blast events, but does not expose a conclusive SDK Activity signature or semantic ad-container Resource ID for every ad frame. Those frames must remain `UNKNOWN` until supported evidence is actually observed.
+
+
+## P2.8 — Ad context guard and execution policy hardening
+
+- A visual match by itself is not evidence that an advertisement is active. A fresh, non-empty snapshot from the exact Fruit Blast package must independently establish an allowlisted ad SDK Activity context before a visual action can become `SKIP_AVAILABLE`.
+- A verified `NEXT_AD` (`>>`) or `CLOSE` (`X`) match in a generic host/game window remains `UNKNOWN`; it cannot authorize a click.
+- `ActionExecutionPolicy` accepts only classifier states `AD_PLAYING` and `SKIP_AVAILABLE`. It no longer accepts Resource ID/reward-marker inputs or makes a second, conflicting SDK-class decision.
+- Resource IDs remain excluded from ad classification and click authorization.
+- P2.7 two-frame temporal verification, exact package check, 15-second freshness limit, live Accessibility node/bounds revalidation, enabled/visible/clickable checks, one-attempt-per-control-state behavior, and Accessibility `ACTION_CLICK` remain required.
+- `CONTINUE`, OCR, coordinate taps, screenshot persistence, SDK hooks, reward/impression spoofing, and target-app modification remain out of scope.
+- CI validates logic and compilation only. Real-device validation is still required to confirm Fruit Blast exposes a supported ad-context signal and that the visual regions align with live Accessibility nodes. If the context signal is unavailable or ambiguous, the service must remain fail-closed.
