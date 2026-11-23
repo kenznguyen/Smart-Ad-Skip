@@ -1,48 +1,22 @@
 # Architecture
 
-## v0.2.0 — P1 Accessibility Monitor
+## v0.2.1 — P1 Monitor Freshness and Lifecycle
 
-P1 adds an opt-in Android AccessibilityService for observation only.
+P1 adds event timestamps and explicit snapshot freshness without changing the observe-only safety boundary.
 
-### Implemented components
+### Snapshot and dashboard
 
-- **app** — Compose dashboard showing monitor connection and latest safe metadata.
-- **accessibility** — AccessibilityService lifecycle, bounded UI-node counting, snapshot policy, and in-process state repository.
-- **core safety boundary** — No UI action executor is present in P1.
+Each in-memory snapshot includes the event-received epoch timestamp. The dashboard formats the local event time and calculates age against the current clock, refreshing the age display every second. A snapshot is shown as stale after 15 seconds without a newer Accessibility event. This is a telemetry freshness indicator only; stale does not imply that an ad ended or that an application changed state.
 
-### Snapshot data policy
+### Repository lifecycle
 
-The monitor records only:
-- source package name;
-- accessibility event type;
-- window class name;
-- bounded total node count (maximum 200);
-- bounded clickable-node count (never greater than total nodes).
+- Events are accepted only while the service is connected.
+- Disconnect/unbind/destroy clears the latest snapshot.
+- A subsequent service connection can publish new snapshots.
+- Snapshot timestamps are not persisted.
 
-It does not read or persist node text, content descriptions, input values, passwords, screenshots, or view hierarchies. The service observes window state, windows, and window content change events with a 500 ms notification timeout.
+### Existing P1 data policy and Strict Safety
 
-### Strict Safety
+The monitor records only source package name, event type, window class name, bounded node counts, and event-received timestamp. It does not read or persist node text, content descriptions, input values, passwords, screenshots, or view hierarchies.
 
-- Accessibility monitoring is disabled until the user explicitly enables the service in Android Settings.
-- P1 does not call `performAction`, dispatch gestures, click controls, or execute Skip/Close.
-- No ad classification, reward verification, or automated decision is implemented.
-- Unknown or missing metadata remains observational only.
-- Disconnecting the service clears the latest in-memory snapshot.
-
-## Planned components
-
-- **detection** — ad and skip UI detection.
-- **overlay** — floating status and user controls.
-- **engine** — decision engine and strict safety controller.
-- **action** — explicitly permitted UI actions (later phase; disabled until separately approved).
-- **verification** — post-action state verification.
-- **data** — preferences and event persistence.
-- **logging** — auditable event records.
-
-Components will be introduced incrementally. No planned component is considered implemented until it exists in source and has tests.
-
-## Safety flow
-
-Observe UI metadata → classify state (future phase) → evaluate safety constraints (future phase) → request/perform only a separately approved permitted action (future phase) → verify observed result (future phase) → log.
-
-Unknown or ambiguous state must resolve to no action.
+P1 remains observe-only: no `performAction`, gesture dispatch, clicking, Skip/Close execution, ad classification, or reward verification.
