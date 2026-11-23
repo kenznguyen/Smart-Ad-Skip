@@ -8,6 +8,13 @@ class VisualActionDetectorTest {
     private val detector = VisualActionDetector(minimumConfidence = 0.70f)
 
     @Test
+    fun defaultDetectorAcceptsHighConfidenceCandidateFromSingleFrame() {
+        val singleFrameMatch = VisualActionDetector().detect(nextAdFrame())
+        assertEquals(VisualActionType.NEXT_AD, singleFrameMatch.type)
+        assertTrue(singleFrameMatch.confidence >= 0.82f)
+    }
+
+    @Test
     fun detectsYellowDoubleChevronAsNextAd() {
         val match = detector.detect(nextAdFrame())
         assertEquals(VisualActionType.NEXT_AD, match.type)
