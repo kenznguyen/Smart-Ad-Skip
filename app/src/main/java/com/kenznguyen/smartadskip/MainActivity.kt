@@ -61,7 +61,7 @@ private fun AccessibilityMonitorScreen() {
         (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
     }
     val snapshotFresh = currentSnapshot != null &&
-        (nowMillis - snapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
+        (nowMillis - currentSnapshot.observedAtEpochMillis) in 0..SNAPSHOT_STALE_AFTER_MILLIS
     val displayedAdState = if (snapshotFresh) adState.name else "UNKNOWN"
     val snapshotFreshness = when {
         currentSnapshot == null -> "Waiting for first event"
