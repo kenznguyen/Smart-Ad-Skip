@@ -371,7 +371,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         task.addOnSuccessListener(mainExecutor) { result ->
             try {
-                if (!screenshotLifecycle.isCurrent(requestId)) return@addOnSuccessListener
+                if (!screenshotLifecycle.isCurrent(requestId)) {
+                    logDeny("ocr", "stale_screenshot_callback")
+                    return@addOnSuccessListener
+                }
                 val candidate = findOcrFirstCandidate(snapshot, bitmap, result.textBlocks)
                 if (candidate != null) {
                     authorizeDetectedAction(
@@ -385,6 +388,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 } else {
                     logDeny("candidate", "no_eligible_next_ad_or_close_candidate")
                 }
+            } catch (error: RuntimeException) {
+                logDeny("candidate_pipeline", "runtime_exception=${error.javaClass.simpleName}")
             } finally {
                 bitmap.recycle()
                 screenshotLifecycle.finish(requestId)
@@ -400,7 +405,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private data class DetectedActionCandidate(
         val node: StructuralNodeMetadata,
         val action: VisualActionType,
-        val confidence: Float,
         val ocrHint: OcrActionHint
     )
 
@@ -471,7 +475,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             DetectedActionCandidate(
                 node = candidate,
                 action = action,
-                confidence = if (hint == OcrActionHint.NO_TEXT) 0.90f else 1.0f,
                 ocrHint = hint
             )
         }.toList()
@@ -495,7 +498,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             logDeny("authorization", "stale_screenshot_request")
             return
         }
-        if (action !in APPROVED_VISUAL_ACTIONS) {
+        if (action !in APPROVED_ACTIONS) {
             logDeny("authorization", "action_not_approved")
             return
         }
@@ -524,7 +527,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             logDeny("freshness", "snapshot_stale_before_live_lookup")
             return
         }
-        if (action !in APPROVED_VISUAL_ACTIONS) {
+        if (action !in APPROVED_ACTIONS) {
             logDeny("click_authorization", "unsupported_action=$action")
             return
         }
@@ -605,7 +608,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             }
 
             attemptedControlKeys += identityKey
-            val clicked = selected.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            val clicked = runCatching {
+                selected.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }.getOrElse {
+                logDeny("perform_action", "exception=${it.javaClass.simpleName}")
+                false
+            }
             if (clicked) {
                 Log.i(TAG, "click_dispatched action=$action source_live_accessibility=true")
             } else {
@@ -658,6 +666,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         const val TAG = "SmartAdSkip"
         const val MAX_NODES_PER_EVENT = 200
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
-        val APPROVED_VISUAL_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
+        val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
     }
 }
