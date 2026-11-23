@@ -119,6 +119,77 @@ class AdStateClassifierTest {
     }
 
     @Test
+    fun rejectsSystemUiAndScreenRecorderPackagesAsIrrelevantSources() {
+        assertEquals(false, classifier.isRelevantPackage("com.android.systemui"))
+        assertEquals(false, classifier.isRelevantPackage("com.miui.screenrecorder"))
+        assertEquals(true, classifier.isRelevantPackage("com.funnyvideo.cgame.fruitblast"))
+    }
+
+    @Test
+    fun recognizesKnownRewardedAdSdkActivitySignatures() {
+        val signatures = listOf(
+            "com.mbridge.msdk.reward.player.MBRewardVideoActivity",
+            "com.google.android.gms.ads.AdActivity",
+            "com.unity3d.services.ads.adunit.AdUnitActivity",
+            "com.applovin.adview.AppLovinFullscreenActivity",
+            "com.facebook.ads.AudienceNetworkActivity"
+        )
+
+        signatures.forEach { signature ->
+            val current = snapshot(
+                packageName = "com.funnyvideo.cgame.fruitblast",
+                nodes = listOf(node(null))
+            ).copy(windowClassName = signature)
+            assertEquals(signature, AdState.AD_PLAYING, classifier.classify(current, now))
+        }
+    }
+
+    @Test
+    fun sdkActivityTransitionToHostAppWindowProvesAdCompleted() {
+        val previous = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(node(null)),
+            timestamp = now - 1_000L
+        ).copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+        val current = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(node(null)),
+            timestamp = now
+        ).copy(windowClassName = "com.funnyvideo.cgame.fruitblast.GameView")
+
+        assertEquals(AdState.AD_COMPLETED, classifier.classify(current, now, previous))
+    }
+
+    @Test
+    fun foreignPackageEventCannotCompleteOrReplaceAdState() {
+        val previous = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(node(null)),
+            timestamp = now - 1_000L
+        ).copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+        val current = snapshot(
+            packageName = "com.android.systemui",
+            nodes = listOf(node(null)),
+            timestamp = now
+        )
+
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now, previous))
+    }
+
+    @Test
+    fun genericWebViewOrButtonDoesNotCountAsAdEvidence() {
+        val current = snapshot(
+            packageName = "com.funnyvideo.cgame.fruitblast",
+            nodes = listOf(
+                node(null, clickable = true).copy(viewClassName = "android.webkit.WebView"),
+                node(null, clickable = true).copy(viewClassName = "android.widget.Button")
+            )
+        )
+
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
+    }
+
+    @Test
     fun unrelatedWindowClassDoesNotTriggerMbridgeDetection() {
         val current = snapshot(
             packageName = "com.funnyvideo.cgame.fruitblast",
@@ -129,7 +200,7 @@ class AdStateClassifierTest {
     }
 
     private fun snapshot(
-        packageName: String = "com.game",
+        packageName: String = "com.funnyvideo.cgame.fruitblast",
         nodes: List<StructuralNodeMetadata>,
         timestamp: Long = now
     ) = AccessibilitySnapshot(
@@ -142,8 +213,8 @@ class AdStateClassifierTest {
         structuralNodes = nodes
     )
 
-    private fun adNode() = node("com.game:id/interstitial_ad_container")
-    private fun skipNode() = node("com.game:id/skip_button", clickable = true)
+    private fun adNode() = node("com.funnyvideo.cgame.fruitblast:id/interstitial_ad_container")
+    private fun skipNode() = node("com.funnyvideo.cgame.fruitblast:id/skip_button", clickable = true)
 
     private fun node(
         resourceId: String?,
