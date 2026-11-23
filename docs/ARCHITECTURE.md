@@ -59,3 +59,14 @@ CI does not replace physical-device validation. The video supplied for P2.3 show
 - OCR and pixel classification never grant permission to click. The final path still requires exact target package, fresh snapshot, unique live Accessibility node re-identification, visible/enabled/clickable checks, approved `NEXT_AD`/`CLOSE` action, non-completed ad context, and one-attempt-per-state.
 - The service logs structured deny reasons with stage and reason (capture, OCR, candidate policy, package, freshness, live Accessibility, one-attempt guard, Click Authorization, and ACTION_CLICK result) under the `SmartAdSkip` tag.
 - Bounds may shift between snapshot and live lookup; they are used only to disambiguate equivalent nodes, never for coordinate taps. Ambiguous node matches fail closed.
+
+
+## P2.17 — Close-Only Minimal Architecture
+
+- `CLOSE` is the only action that can be discovered or authorized. OCR recognizes `X`, `Close` and `Dismiss`; pixel classification is limited to symbol-only X candidates.
+- `NEXT_AD` and `>>` are not candidate outputs. The legacy enum value remains only so policy tests can prove it is rejected; the visual detector never emits it and the execution policy never permits it.
+- OCR and pixel classification provide candidate evidence only. They never grant click permission.
+- Exact Fruit Blast package, Freshness Guard, live Accessibility root and unique node re-identification, visible/enabled/clickable checks, completed-ad block, Strict Safety, Click Authorization and one-attempt-per-state remain mandatory.
+- The only dispatched operation is Accessibility `ACTION_CLICK` on the uniquely matched live node. Coordinate taps are prohibited.
+- Protected commercial/reward labels and ambiguous text fail closed. Structured `click_denied stage=... reason=...` logs remain available for diagnosing rejected candidates and authorization.
+- CI is necessary but not sufficient; real-device Fruit Blast validation remains required before merge.
