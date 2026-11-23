@@ -3,17 +3,35 @@ package com.kenznguyen.smartadskip.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.graphics.drawable.GradientDrawable
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import com.kenznguyen.smartadskip.detection.AdState
 import com.kenznguyen.smartadskip.detection.AdStateClassifier
+import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
+import com.kenznguyen.smartadskip.overlay.OverlayVisibilityPolicy
 import java.util.ArrayDeque
 import java.util.concurrent.Executor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val snapshotPolicy = AccessibilitySnapshotPolicy()
@@ -30,11 +48,35 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var previousSnapshot: AccessibilitySnapshot? = null
     private var lastActionableUiState: Pair<String?, List<StructuralNodeMetadata>>? = null
     private val attemptedControlKeys = mutableSetOf<String>()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var overlayRoot: LinearLayout? = null
+    private var overlayStatus: TextView? = null
+    private var overlayDetails: LinearLayout? = null
+    private var overlayLayoutParams: WindowManager.LayoutParams? = null
+    private var overlayCollapsed = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         resetMonitoringState()
         AccessibilityMonitorRepository.setConnected(true)
+        serviceScope.launch {
+            OverlayRequestRepository.requested.collect { requested ->
+                if (OverlayVisibilityPolicy.shouldShow(true, requested)) showOverlay() else removeOverlay()
+            }
+        }
+        serviceScope.launch {
+            kotlinx.coroutines.flow.combine(
+                AccessibilityMonitorRepository.latestSnapshot,
+                AdDetectionRepository.state
+            ) { snapshot, state ->
+                val fresh = snapshot != null && AccessibilitySnapshotFreshnessPolicy.isFresh(
+                    snapshot.observedAtEpochMillis,
+                    System.currentTimeMillis()
+                )
+                val adState = if (fresh) state.name else "UNKNOWN · STALE"
+                "Monitor: CONNECTED\\nAd state: $adState\\nPackage: ${snapshot?.packageName ?: "—"}"
+            }.collect { overlayStatus?.text = it }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -73,8 +115,110 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        removeOverlay()
+        serviceScope.cancel()
         resetMonitoringState()
         super.onDestroy()
+    }
+
+    private fun showOverlay() {
+        if (overlayRoot != null) return
+        val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 12, 16, 12)
+            background = GradientDrawable().apply {
+                setColor(Color.argb(235, 28, 32, 38))
+                cornerRadius = 18f
+            }
+        }
+        val header = TextView(this).apply {
+            text = "SMART AD SKIP  ·  DRAG"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(4, 4, 4, 12)
+        }
+        val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val status = TextView(this).apply {
+            text = "Monitor: CONNECTED\\nAd state: UNKNOWN"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setPadding(4, 4, 4, 8)
+        }
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(Button(this@SmartAdSkipAccessibilityService).apply {
+                text = "Collapse"
+                setOnClickListener {
+                    overlayCollapsed = true
+                    details.visibility = View.GONE
+                    (it as Button).text = "Expand"
+                }
+            })
+            addView(Button(this@SmartAdSkipAccessibilityService).apply {
+                text = "Close"
+                setOnClickListener { OverlayRequestRepository.setRequested(false) }
+            })
+        }
+        details.addView(status)
+        details.addView(actions)
+        root.addView(header)
+        root.addView(details)
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = 16
+            y = 160
+        }
+        header.setOnTouchListener(object : View.OnTouchListener {
+            private var startRawY = 0f
+            private var startY = 0
+            override fun onTouch(view: View, event: MotionEvent): Boolean {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        startRawY = event.rawY
+                        startY = params.y
+                        return true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.y = (startY + event.rawY - startRawY).toInt().coerceAtLeast(0)
+                        runCatching { windowManager.updateViewLayout(root, params) }
+                        return true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> return true
+                }
+                return false
+            }
+        })
+        try {
+            windowManager.addView(root, params)
+            overlayRoot = root
+            overlayStatus = status
+            overlayDetails = details
+            overlayLayoutParams = params
+            overlayCollapsed = false
+        } catch (_: RuntimeException) {
+            overlayRoot = null
+            overlayStatus = null
+            overlayDetails = null
+            overlayLayoutParams = null
+        }
+    }
+
+    private fun removeOverlay() {
+        val root = overlayRoot ?: return
+        val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        runCatching { windowManager.removeView(root) }
+        overlayRoot = null
+        overlayStatus = null
+        overlayDetails = null
+        overlayLayoutParams = null
+        overlayCollapsed = false
     }
 
     private fun resetMonitoringState() {
