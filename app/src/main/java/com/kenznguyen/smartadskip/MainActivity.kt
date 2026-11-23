@@ -16,10 +16,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,53 +44,50 @@ private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
+    val nowMillis by produceState(initialValue = System.currentTimeMillis(), snapshot?.observedAtEpochMillis) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val snapshotAgeSeconds = snapshot?.let {
+        ((nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L)
+    }
+    val snapshotFreshness = when {
+        snapshot == null -> "Waiting for first event"
+        snapshotAgeSeconds!! <= SNAPSHOT_STALE_AFTER_SECONDS -> "Fresh · ${snapshotAgeSeconds}s ago"
+        else -> "Stale · ${snapshotAgeSeconds}s ago"
+    }
+    val observedAt = snapshot?.let {
+        EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(it.observedAtEpochMillis))
+    } ?: "—"
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = "Smart Ad Skip",
-            style = MaterialTheme.typography.headlineMedium
-        )
-        Text(
-            text = "P1 · Accessibility Monitor",
-            style = MaterialTheme.typography.titleMedium
-        )
-        Text(
-            text = "Monitor: ${if (isConnected) "Connected" else "Not enabled"}",
-            style = MaterialTheme.typography.bodyLarge
-        )
+        Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
+        Text("P1 · Accessibility Monitor", style = MaterialTheme.typography.titleMedium)
+        Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
             Text("Open Accessibility Settings")
         }
+        Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Window class: ${snapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Event type: ${snapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text(
-            text = "Latest observed package: ${snapshot?.packageName ?: "—"}",
+            "UI nodes: ${snapshot?.nodeCount?.toString() ?: "—"} · Clickable nodes: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
-        Text(
-            text = "Window class: ${snapshot?.windowClassName ?: "—"}",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = "Event type: ${snapshot?.eventType?.toString() ?: "—"}",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = "UI nodes: ${snapshot?.nodeCount?.toString() ?: "—"} · Clickable nodes: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = "Safety: Strict · Observe only · No automatic actions",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = "On-screen text and input values are not collected.",
-            style = MaterialTheme.typography.bodySmall
-        )
+        Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
+        Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
+        Text("Safety: Strict · Observe only · No automatic actions", style = MaterialTheme.typography.bodyMedium)
+        Text("On-screen text and input values are not collected.", style = MaterialTheme.typography.bodySmall)
     }
 }
+
+private const val SNAPSHOT_STALE_AFTER_SECONDS = 15L
+private val EVENT_TIME_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
