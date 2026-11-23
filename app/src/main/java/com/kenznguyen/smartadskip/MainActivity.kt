@@ -89,6 +89,15 @@ private fun AccessibilityMonitorScreen() {
             "Structural nodes: ${snapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
+        Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
+        val transition = snapshot?.structuralTransition
+        if (transition?.comparisonAvailable == true) {
+            Text("Window class changed: ${transition.windowClassChanged}", style = MaterialTheme.typography.bodySmall)
+            Text("Structural node delta: ${transition.structuralNodeDelta}", style = MaterialTheme.typography.bodySmall)
+            Text("Clickable node delta: ${transition.clickableNodeDelta}", style = MaterialTheme.typography.bodySmall)
+        } else {
+            Text("Baseline / insufficient fresh same-package history", style = MaterialTheme.typography.bodySmall)
+        }
         Text("Structural diagnostics (max 20)", style = MaterialTheme.typography.titleSmall)
         if (diagnosticNodes.isEmpty()) {
             Text("No structural metadata available", style = MaterialTheme.typography.bodySmall)
