@@ -47,6 +47,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val actionExecutionPolicy = ActionExecutionPolicy()
     private val visualActionDetector = VisualActionDetector()
     private val ocrActionPolicy = OcrActionPolicy()
+    private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -355,7 +356,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     authorizeOcrAssistedAction(
                         snapshot = snapshot,
                         previous = previous,
-                        targetBounds = verified.bounds,
+                        targetNode = verified.node,
                         visualAction = verified.action,
                         ocrHint = verified.ocrHint,
                         requestId = requestId
@@ -373,7 +374,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     private data class VerifiedOcrCandidate(
-        val bounds: ScreenBounds,
+        val node: StructuralNodeMetadata,
         val action: VisualActionType,
         val confidence: Float,
         val ocrHint: OcrActionHint
@@ -426,7 +427,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     null
                 } else {
                     VerifiedOcrCandidate(
-                        bounds = candidate.bounds,
+                        node = candidate,
                         action = visualMatch.type,
                         confidence = visualMatch.confidence,
                         ocrHint = ocrHint
@@ -443,7 +444,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private fun authorizeOcrAssistedAction(
         snapshot: AccessibilitySnapshot,
         previous: AccessibilitySnapshot?,
-        targetBounds: ScreenBounds,
+        targetNode: StructuralNodeMetadata,
         visualAction: VisualActionType,
         ocrHint: OcrActionHint,
         requestId: Long
@@ -457,12 +458,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             hasVerifiedVisualAction = true
         )
         AdDetectionRepository.publish(verifiedState)
-        attemptVerifiedLiveClick(snapshot, targetBounds, visualAction, verifiedState)
+        attemptVerifiedLiveClick(snapshot, targetNode, visualAction, verifiedState)
     }
 
     private fun attemptVerifiedLiveClick(
         snapshot: AccessibilitySnapshot,
-        targetBounds: ScreenBounds,
+        targetNode: StructuralNodeMetadata,
         type: VisualActionType,
         adState: AdState
     ) {
@@ -475,8 +476,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             lastActionableUiState = uiState
             attemptedControlKeys.clear()
         }
-        val key = "${type.name}|${targetBounds.left}|${targetBounds.top}|${targetBounds.right}|${targetBounds.bottom}"
-        if (key in attemptedControlKeys) return
+        val identityKey = listOf(
+            type.name,
+            targetNode.viewClassName.orEmpty(),
+            targetNode.text.orEmpty().trim().lowercase(),
+            targetNode.contentDescription.orEmpty().trim().lowercase(),
+            targetNode.childCount.toString()
+        ).joinToString("|")
+        if (identityKey in attemptedControlKeys) return
 
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != TARGET_PACKAGE) {
@@ -485,32 +492,41 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
 
         val pending = ArrayDeque<AccessibilityNodeInfo>()
+        val liveNodes = ArrayList<AccessibilityNodeInfo>(MAX_NODES_PER_EVENT)
+        val liveMetadata = ArrayList<StructuralNodeMetadata>(MAX_NODES_PER_EVENT)
         pending.addLast(root)
-        var selected: AccessibilityNodeInfo? = null
         try {
-            var visited = 0
-            while (pending.isNotEmpty() && visited < MAX_NODES_PER_EVENT && selected == null) {
+            while (pending.isNotEmpty() && liveNodes.size < MAX_NODES_PER_EVENT) {
                 val node = pending.removeFirst()
-                visited++
                 val rect = Rect()
                 node.getBoundsInScreen(rect)
                 val bounds = ScreenBounds(rect.left, rect.top, rect.right, rect.bottom)
-                val matches = bounds == targetBounds &&
-                    node.isClickable && node.isEnabled && node.isVisibleToUser && bounds.hasArea
-                val childCount = node.childCount
-                for (index in 0 until childCount) {
-                    if (pending.size + visited >= MAX_NODES_PER_EVENT) break
+                liveNodes += node
+                liveMetadata += StructuralNodeMetadata(
+                    viewClassName = node.className?.toString(),
+                    resourceId = null,
+                    clickable = node.isClickable,
+                    bounds = bounds,
+                    enabled = node.isEnabled,
+                    visible = node.isVisibleToUser,
+                    text = node.text?.toString(),
+                    contentDescription = node.contentDescription?.toString(),
+                    childCount = node.childCount
+                )
+                for (index in 0 until node.childCount) {
+                    if (liveNodes.size + pending.size >= MAX_NODES_PER_EVENT) break
                     node.getChild(index)?.let(pending::addLast)
                 }
-                if (matches) selected = node else node.recycle()
             }
 
+            val selectedIndex = accessibilityNodeMatcher.findUniqueMatch(targetNode, liveMetadata)
+            val selected = selectedIndex?.let(liveNodes::get)
             if (selected != null && actionExecutionPolicy.canClick(adState, type)) {
-                attemptedControlKeys += key
-                selected?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                attemptedControlKeys += identityKey
+                selected.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
         } finally {
-            selected?.recycle()
+            liveNodes.forEach { it.recycle() }
             while (pending.isNotEmpty()) pending.removeFirst().recycle()
         }
     }
@@ -531,7 +547,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     clickable = node.isClickable,
                     bounds = ScreenBounds(bounds.left, bounds.top, bounds.right, bounds.bottom),
                     enabled = node.isEnabled,
-                    visible = node.isVisibleToUser
+                    visible = node.isVisibleToUser,
+                    text = node.text?.toString(),
+                    contentDescription = node.contentDescription?.toString(),
+                    childCount = node.childCount
                 )
                 for (index in 0 until node.childCount) {
                     if (collected.size + pending.size >= MAX_NODES_PER_EVENT) break
