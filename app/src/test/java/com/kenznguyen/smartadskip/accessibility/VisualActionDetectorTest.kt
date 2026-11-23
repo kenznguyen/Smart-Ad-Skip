@@ -8,20 +8,6 @@ class VisualActionDetectorTest {
     private val detector = VisualActionDetector(minimumConfidence = 0.70f)
 
     @Test
-    fun defaultDetectorAcceptsHighConfidenceCandidateFromSingleFrame() {
-        val singleFrameMatch = VisualActionDetector().detect(nextAdFrame())
-        assertEquals(VisualActionType.NEXT_AD, singleFrameMatch.type)
-        assertTrue(singleFrameMatch.confidence >= 0.82f)
-    }
-
-    @Test
-    fun detectsYellowDoubleChevronAsNextAd() {
-        val match = detector.detect(nextAdFrame())
-        assertEquals(VisualActionType.NEXT_AD, match.type)
-        assertTrue(match.confidence >= 0.70f)
-    }
-
-    @Test
     fun detectsWhiteXOnGrayCircleAsClose() {
         val match = detector.detect(closeFrame())
         assertEquals(VisualActionType.CLOSE, match.type)
@@ -29,7 +15,10 @@ class VisualActionDetectorTest {
     }
 
     @Test
-    fun rejectsPlainAdSurfaceAndAmbiguousButton() {
+    fun rejectsFormerNextAdChevronAndPlainAdSurface() {
+        val nextAdLikeFrame = nextAdFrame()
+        assertEquals(VisualActionType.UNKNOWN, detector.detect(nextAdLikeFrame).type)
+
         val blank = VisualFrame(64, 64, IntArray(64 * 64) { rgb(190, 120, 90) })
         assertEquals(VisualActionType.UNKNOWN, detector.detect(blank).type)
     }
