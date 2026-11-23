@@ -131,34 +131,37 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 cornerRadius = 18f
             }
         }
-        val header = TextView(this).apply {
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val title = TextView(this).apply {
             text = "SMART AD SKIP  ·  DRAG"
             setTextColor(Color.WHITE)
             textSize = 13f
-            setPadding(4, 4, 4, 12)
+            setPadding(4, 12, 8, 12)
         }
         val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val status = TextView(this).apply {
-            text = "Monitor: CONNECTED\nAd state: UNKNOWN"
+            text = "Monitor: CONNECTED\\nAd state: UNKNOWN"
             setTextColor(Color.WHITE)
             textSize = 12f
             setPadding(4, 4, 4, 8)
         }
+        val collapseButton = Button(this).apply {
+            text = "Collapse"
+            setOnClickListener {
+                overlayCollapsed = !overlayCollapsed
+                details.visibility = if (overlayCollapsed) View.GONE else View.VISIBLE
+                text = if (overlayCollapsed) "Expand" else "Collapse"
+            }
+        }
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(Button(this@SmartAdSkipAccessibilityService).apply {
-                text = "Collapse"
-                setOnClickListener {
-                    overlayCollapsed = !overlayCollapsed
-                    details.visibility = if (overlayCollapsed) View.GONE else View.VISIBLE
-                    text = if (overlayCollapsed) "Expand" else "Collapse"
-                }
-            })
             addView(Button(this@SmartAdSkipAccessibilityService).apply {
                 text = "Close"
                 setOnClickListener { OverlayRequestRepository.setRequested(false) }
             })
         }
+        header.addView(title)
+        header.addView(collapseButton)
         details.addView(status)
         details.addView(actions)
         root.addView(header)
@@ -174,7 +177,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             x = 16
             y = 160
         }
-        header.setOnTouchListener(object : View.OnTouchListener {
+        title.setOnTouchListener(object : View.OnTouchListener {
             private var startRawY = 0f
             private var startY = 0
             override fun onTouch(view: View, event: MotionEvent): Boolean {
