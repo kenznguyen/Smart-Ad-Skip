@@ -56,7 +56,11 @@ class AccessibilitySnapshotPolicy {
         )
     }
 
+    fun diagnosticNodes(snapshot: AccessibilitySnapshot): List<StructuralNodeMetadata> =
+        snapshot.structuralNodes.take(MAX_DIAGNOSTIC_NODES)
+
     private companion object {
+        const val MAX_DIAGNOSTIC_NODES = 20
         const val MAX_NODE_COUNT = 200
     }
 }
