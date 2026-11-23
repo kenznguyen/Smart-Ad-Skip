@@ -360,7 +360,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (snapshot.packageName != TARGET_PACKAGE) return
         if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())) return
         if (type !in APPROVED_VISUAL_ACTIONS) return
-        if (!actionExecutionPolicy.canClick(adState)) return
 
         val uiState = snapshot.windowClassName to snapshot.structuralNodes
         if (uiState != lastActionableUiState) {
@@ -397,7 +396,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 if (matches) selected = node else node.recycle()
             }
 
-            if (selected != null) {
+            if (selected != null && actionExecutionPolicy.canClick(adState, type)) {
                 attemptedControlKeys += key
                 selected?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
