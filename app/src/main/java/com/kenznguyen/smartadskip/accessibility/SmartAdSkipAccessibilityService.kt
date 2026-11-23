@@ -13,6 +13,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val adStateClassifier = AdStateClassifier()
     private val structuralTransitionAnalyzer = StructuralTransitionAnalyzer()
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
+    private val closeButtonDetector = CloseButtonDetector()
     private var previousSnapshot: AccessibilitySnapshot? = null
 
     override fun onServiceConnected() {
@@ -42,9 +43,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             temporalPattern = temporalPatternAnalyzer.record(baseSnapshot)
         )
         val state = adStateClassifier.classify(snapshot, now, previousSnapshot)
+        val enrichedSnapshot = snapshot.copy(
+            closeButton = closeButtonDetector.detect(snapshot, previousSnapshot, state, now)
+        )
         AdDetectionRepository.publish(state)
-        previousSnapshot = snapshot
-        AccessibilityMonitorRepository.publish(snapshot)
+        previousSnapshot = enrichedSnapshot
+        AccessibilityMonitorRepository.publish(enrichedSnapshot)
     }
 
     override fun onInterrupt() = Unit
