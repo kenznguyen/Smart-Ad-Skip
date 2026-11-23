@@ -84,7 +84,7 @@ private fun AccessibilityMonitorScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2.17 · Close-Only Minimal", style = MaterialTheme.typography.titleMedium)
+        Text("P2.18 · Floating Overlay Upgrade", style = MaterialTheme.typography.titleMedium)
 
         Text(
             "Accessibility: ${if (isConnected) "Connected" else "Not enabled"}",
