@@ -27,6 +27,14 @@ For at most 200 nodes per relevant Accessibility event, the service reads only V
 
 P2.3 remains detection-only. It does not call `performAction`, dispatch gestures, click controls, skip/close ads, verify rewards, or interact with ad SDKs. Snapshots become stale after 15 seconds; disconnect resets monitoring state.
 
+## P2.3.1 — Structural transition diagnostics
+
+- The monitor compares consecutive snapshots only when both are fresh, timestamps advance, and both snapshots belong to the exact Fruit Blast target package.
+- Diagnostics report whether the Window class changed and the signed deltas for structural-node and clickable-node counts.
+- A missing baseline, stale snapshot, non-advancing timestamp or package mismatch produces an unavailable comparison.
+- Structural transitions are dashboard diagnostics only. Window changes and node-count deltas do not classify an ad and do not change AD_PLAYING, SKIP_AVAILABLE or AD_COMPLETED.
+- The existing semantic Resource ID and exact SDK Activity allowlist remain the only positive ad evidence. Ambiguous observations remain UNKNOWN.
+
 ## Device validation
 
 CI does not replace physical-device validation. The video supplied for P2.3 shows unrelated System UI/Screen Recorder events interleaved with Fruit Blast events, but does not expose a conclusive SDK Activity signature or semantic ad-container Resource ID for every ad frame. Those frames must remain `UNKNOWN` until supported evidence is actually observed.
