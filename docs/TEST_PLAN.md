@@ -15,11 +15,14 @@
 - [x] Node counts are clamped to 0–200.
 - [x] Clickable node count cannot exceed total node count.
 - [x] Snapshot model contains no UI text or input-value fields.
+- [x] Every snapshot carries an event-received timestamp.
+- [x] Dashboard displays the last event time and marks snapshots stale after 15 seconds.
+- [x] Disconnect clears the latest snapshot; reconnect accepts fresh events.
 - [x] Service is declared with the Android accessibility binding permission.
 - [x] Service only observes window state/windows/content-change events.
 - [x] Dashboard exposes service connection and latest metadata.
 - [x] No automatic Skip/Close action is implemented.
-- [ ] Enable service and validate event delivery on a physical Android device.
+- [ ] Validate timestamp refresh and stale indication on a physical Android device.
 - [ ] Validate service disconnect/reconnect behavior on the target device.
 
 ## Planned detection and safety tests
