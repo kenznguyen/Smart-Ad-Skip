@@ -66,14 +66,20 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             kotlinx.coroutines.flow.combine(
                 AccessibilityMonitorRepository.latestSnapshot,
-                AdDetectionRepository.state
-            ) { snapshot, state ->
+                AdDetectionRepository.state,
+                kotlinx.coroutines.flow.flow {
+                    while (true) {
+                        emit(Unit)
+                        delay(1_000)
+                    }
+                }
+            ) { snapshot, state, _ ->
                 val fresh = snapshot != null && AccessibilitySnapshotFreshnessPolicy.isFresh(
                     snapshot.observedAtEpochMillis,
                     System.currentTimeMillis()
                 )
                 val adState = if (fresh) state.name else "UNKNOWN · STALE"
-                "Monitor: CONNECTED\nAd state: $adState\nPackage: ${snapshot?.packageName ?: "—"}"
+                "Monitor: CONNECTED\\nAd state: $adState\\nPackage: ${snapshot?.packageName ?: "—"}"
             }.collect { overlayStatus?.text = it }
         }
     }
