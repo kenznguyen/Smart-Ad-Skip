@@ -103,46 +103,51 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (now - snapshot.observedAtEpochMillis !in 0..MAX_SNAPSHOT_AGE_MILLIS) return
         if (!screenshotInFlight.compareAndSet(false, true)) return
 
-        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
-            override fun onSuccess(result: ScreenshotResult) {
-                try {
-                    val hardwareBitmap = Bitmap.wrapHardwareBuffer(
-                        result.hardwareBuffer,
-                        result.colorSpace
-                    ) ?: return
-                    val bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false)
-                    hardwareBitmap.recycle()
-                    result.hardwareBuffer.close()
+        ScreenshotRequestGuard.execute(
+            request = {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
                     try {
-                        val detected = findVisualAction(snapshot, bitmap)
-                        val visualMatch = detected?.second
-                            ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
-                        val confirmedAction = visualActionTemporalVerifier.observe(
-                            visualMatch,
-                            System.currentTimeMillis()
-                        )
-                        if (detected != null && confirmedAction != null) {
-                            val verifiedState = adStateClassifier.classify(
-                                snapshot, System.currentTimeMillis(), previous,
-                                hasVerifiedVisualAction = true
+                        val hardwareBitmap = Bitmap.wrapHardwareBuffer(
+                            result.hardwareBuffer,
+                            result.colorSpace
+                        ) ?: return
+                        val bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                        hardwareBitmap.recycle()
+                        result.hardwareBuffer.close()
+                        try {
+                            val detected = findVisualAction(snapshot, bitmap)
+                            val visualMatch = detected?.second
+                                ?: VisualActionMatch(VisualActionType.UNKNOWN, 0f)
+                            val confirmedAction = visualActionTemporalVerifier.observe(
+                                visualMatch,
+                                System.currentTimeMillis()
                             )
-                            AdDetectionRepository.publish(verifiedState)
-                            attemptVerifiedLiveClick(snapshot, detected.first, confirmedAction, verifiedState)
+                            if (detected != null && confirmedAction != null) {
+                                val verifiedState = adStateClassifier.classify(
+                                    snapshot, System.currentTimeMillis(), previous,
+                                    hasVerifiedVisualAction = true
+                                )
+                                AdDetectionRepository.publish(verifiedState)
+                                attemptVerifiedLiveClick(snapshot, detected.first, confirmedAction, verifiedState)
+                            }
+                        } finally {
+                            bitmap.recycle()
                         }
+                    } catch (_: RuntimeException) {
+                        // Screenshot decoding or processing failure must never trigger a click.
                     } finally {
-                        bitmap.recycle()
+                        screenshotInFlight.set(false)
                     }
-                } catch (_: RuntimeException) {
-                    // Screenshot decoding or processing failure must never trigger a click.
-                } finally {
+                }
+    
+                override fun onFailure(errorCode: Int) {
                     screenshotInFlight.set(false)
                 }
-            }
-
-            override fun onFailure(errorCode: Int) {
-                screenshotInFlight.set(false)
-            }
-        })
+            })
+            },
+            onFailure = { screenshotInFlight.set(false) }
+        )
     }
 
     private fun findVisualAction(
