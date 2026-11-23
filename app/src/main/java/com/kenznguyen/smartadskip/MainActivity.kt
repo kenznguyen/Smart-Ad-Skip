@@ -74,7 +74,7 @@ private fun AccessibilityMonitorScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2 · Ad State Detection", style = MaterialTheme.typography.titleMedium)
+        Text("P2.4 · Ad Close Button Detection", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -89,6 +89,17 @@ private fun AccessibilityMonitorScreen() {
             "Structural nodes: ${snapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${snapshot?.clickableNodeCount?.toString() ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
+        Text("Close button detection", style = MaterialTheme.typography.titleSmall)
+        val closeButton = snapshot?.closeButton
+        Text("Detection: ${closeButton?.status?.name ?: "WAITING"}", style = MaterialTheme.typography.bodySmall)
+        if (closeButton?.candidate != null && snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS) {
+            Text("Resource ID: ${closeButton.candidate.resourceId}", style = MaterialTheme.typography.bodySmall)
+            Text("View class: ${closeButton.candidate.viewClassName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+            Text("Bounds: ${closeButton.candidate.bounds}", style = MaterialTheme.typography.bodySmall)
+        } else {
+            Text("No verified close button in the latest snapshot", style = MaterialTheme.typography.bodySmall)
+        }
+        Text("Detection only · No automatic click or gesture", style = MaterialTheme.typography.bodySmall)
         Text("Structural transition diagnostics", style = MaterialTheme.typography.titleSmall)
         val transition = snapshot?.structuralTransition
         if (transition?.comparisonAvailable == true) {
@@ -122,7 +133,7 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
-        Text("Safety: Strict · Observe only · No automatic actions", style = MaterialTheme.typography.bodyMedium)
+        Text("Safety: Strict · Detection only · No automatic actions", style = MaterialTheme.typography.bodyMedium)
         Text("Text, content descriptions, input values, screenshots and OCR are not collected.", style = MaterialTheme.typography.bodySmall)
     }
 }
