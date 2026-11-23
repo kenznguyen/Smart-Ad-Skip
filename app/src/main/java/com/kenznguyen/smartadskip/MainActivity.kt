@@ -51,11 +51,11 @@ private fun AccessibilityMonitorScreen() {
         }
     }
     val snapshotAgeSeconds = snapshot?.let {
-        ((nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L)
-    }
+        (nowMillis - it.observedAtEpochMillis).coerceAtLeast(0L) / 1_000L
+    } ?: 0L
     val snapshotFreshness = when {
         snapshot == null -> "Waiting for first event"
-        snapshotAgeSeconds!! <= SNAPSHOT_STALE_AFTER_SECONDS -> "Fresh · ${snapshotAgeSeconds}s ago"
+        snapshotAgeSeconds <= SNAPSHOT_STALE_AFTER_SECONDS -> "Fresh · ${snapshotAgeSeconds}s ago"
         else -> "Stale · ${snapshotAgeSeconds}s ago"
     }
     val observedAt = snapshot?.let {
