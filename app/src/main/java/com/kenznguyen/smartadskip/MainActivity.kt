@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -23,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
 import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshotPolicy
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
+import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -47,6 +50,7 @@ private fun AccessibilityMonitorScreen() {
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
     val adState by AdDetectionRepository.state.collectAsState()
+    val overlayRequested by OverlayRequestRepository.requested.collectAsState()
     val nowMillis by produceState(initialValue = System.currentTimeMillis(), snapshot?.observedAtEpochMillis) {
         while (true) {
             value = System.currentTimeMillis()
@@ -69,17 +73,21 @@ private fun AccessibilityMonitorScreen() {
     } ?: "—"
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2.5 · Guarded Automatic Click", style = MaterialTheme.typography.titleMedium)
+        Text("P2.11 · Scrollable Dashboard + Floating Overlay", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
             Text("Open Accessibility Settings")
         }
+        Button(onClick = { OverlayRequestRepository.setRequested(!overlayRequested) }) {
+            Text(if (overlayRequested) "Hide Floating Overlay" else "Show Floating Overlay")
+        }
+        Text("Floating overlay: ${if (overlayRequested) "Requested" else "Off"}", style = MaterialTheme.typography.bodyMedium)
         Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
         Text("Latest observed package: ${snapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Window class: ${snapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
@@ -144,6 +152,6 @@ private fun AccessibilityMonitorScreen() {
     }
 }
 
-private const val SNAPSHOT_STALE_AFTER_SECONDS = 15L
+private const val SNAPSHOT_STALE_AFTER_SECONDS = 5L
 private val EVENT_TIME_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
