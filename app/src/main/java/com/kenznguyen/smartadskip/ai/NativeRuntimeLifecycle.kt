@@ -5,7 +5,7 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-internal class NativeInferenceBusyException(val diagnostic: String) : IllegalStateException("native_inference_busy $diagnostic")
+internal class NativeInferenceBusyException(val diagnostic: String = "state=running age_ms=0") : IllegalStateException("native_inference_busy $diagnostic")
 
 /** Serializes JNI operations. Caller timeout never releases ownership of synchronous JNI. */
 internal class NativeRuntimeLifecycle(
