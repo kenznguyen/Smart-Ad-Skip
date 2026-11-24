@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,19 +19,28 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
+import com.kenznguyen.smartadskip.ai.ModelPackageImporter
 import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshotPolicy
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +58,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var modelImportStatus by remember { mutableStateOf("Qwen3-VL model not imported") }
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                modelImportStatus = "Importing and verifying model package…"
+                modelImportStatus = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val input = context.contentResolver.openInputStream(uri)
+                            ?: error("Cannot open selected model package")
+                        input.use {
+                            ModelPackageImporter(File(context.filesDir, "models")).importPackage(it)
+                        }
+                    }
+                    "Qwen3-VL model imported and verified"
+                }.getOrElse { "Model import failed: " + (it.message ?: "invalid package") }
+            }
+        }
+    }
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
     val currentSnapshot = snapshot
@@ -80,6 +110,10 @@ private fun AccessibilityMonitorScreen() {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
         Text("P2.11 · Scrollable Dashboard + Floating Overlay", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
+        Button(onClick = { modelPicker.launch(arrayOf("application/zip", "application/octet-stream")) }) {
+            Text("Import Qwen3-VL model ZIP")
+        }
+        Text(modelImportStatus, style = MaterialTheme.typography.bodySmall)
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
