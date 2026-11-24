@@ -46,6 +46,17 @@ class ScreenshotCaptureLifecycleTest {
     }
 
     @Test
+    fun finishReportsWhetherItReleasedTheCurrentRequest() {
+        val lifecycle = ScreenshotCaptureLifecycle()
+        val current = lifecycle.begin()!!
+        val stale = current + 1
+
+        assertFalse(lifecycle.finish(stale))
+        assertTrue(lifecycle.finish(current))
+        assertFalse(lifecycle.finish(current))
+    }
+
+    @Test
     fun finishReleasesOnlyTheCurrentRequest() {
         val lifecycle = ScreenshotCaptureLifecycle()
         val request = lifecycle.begin()!!
