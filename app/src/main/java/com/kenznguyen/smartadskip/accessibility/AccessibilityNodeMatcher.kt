@@ -22,7 +22,7 @@ class AccessibilityNodeMatcher {
             if (live.viewClassName != detected.viewClassName) return@mapIndexedNotNull null
 
             val liveLabels = labels(live)
-            val identityMatches = liveLabels.isNotEmpty() && detectedLabels.any { it in liveLabels }
+            val identityMatches = liveLabels.isNotEmpty() && detectedLabels == liveLabels
             if (identityMatches) index to centerDistance(detected.bounds, live.bounds) else null
         }.sortedBy { it.second }
 
