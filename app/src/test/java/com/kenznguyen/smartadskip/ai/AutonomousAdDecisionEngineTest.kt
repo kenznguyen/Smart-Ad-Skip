@@ -2,6 +2,7 @@ package com.kenznguyen.smartadskip.ai
 
 import com.kenznguyen.smartadskip.accessibility.ScreenBounds
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,6 +68,28 @@ class AutonomousAdDecisionEngineTest {
         val decision = AutonomousAdDecisionEngine(FakeRuntime(), { now })
             .decide(context(elements = listOf(invalid)))
         assertEquals(AutonomousDecision.Wait("target_not_actionable"), decision)
+    }
+
+    @Test fun timeoutReturnsWaitAndNeverAuthorizesLateInference() = runBlocking {
+        val slowRuntime = object : Qwen3VlRuntime {
+            override val isModelReady = true
+            override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
+                delay(100)
+                return Qwen3VlOutput(AdAction.CLOSE, "close-1", 0.99f)
+            }
+        }
+        val decision = AutonomousAdDecisionEngine(
+            slowRuntime,
+            { now },
+            inferenceTimeoutMillis = 5
+        ).decide(context())
+        assertEquals(AutonomousDecision.Wait("inference_timeout"), decision)
+    }
+
+    @Test fun frameWithoutSharedSnapshotIdentityIsRejected() = runBlocking {
+        val decision = AutonomousAdDecisionEngine(FakeRuntime(), { now })
+            .decide(context().copy(frameId = 0L))
+        assertEquals(AutonomousDecision.Wait("invalid_frame"), decision)
     }
 
     @Test fun modelWaitDecisionIsRespected() = runBlocking {
