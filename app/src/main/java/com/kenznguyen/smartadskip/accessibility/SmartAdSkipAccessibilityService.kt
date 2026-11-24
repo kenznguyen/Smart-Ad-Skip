@@ -108,14 +108,24 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        if (!adStateClassifier.isRelevantPackage(event.packageName?.toString())) return
-        val nodes = runCatching { collectStructuralNodes(rootInActiveWindow) }
+
+        // event.packageName identifies the event source, not necessarily the active app.
+        // Use the active window root as the foreground-package source of truth.
+        val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
+        val activePackageName = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
+        if (!adStateClassifier.isRelevantPackage(activePackageName)) return
+
+        val nodes = runCatching { collectStructuralNodes(activeRoot) }
             .getOrDefault(emptyList())
         val now = System.currentTimeMillis()
+        val isWindowStateChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         val baseSnapshot = snapshotPolicy.create(
-            packageName = event.packageName?.toString(),
+            packageName = activePackageName,
             eventType = event.eventType,
+            // Retain source-view class for existing structural diagnostics; it is not an Activity.
             windowClassName = event.className,
+            activityClassName = event.className,
+            isWindowStateChanged = isWindowStateChanged,
             nodeCount = nodes.size,
             clickableNodeCount = nodes.count { it.clickable },
             observedAtEpochMillis = now,
