@@ -96,7 +96,7 @@ internal class IsolatedQwen3VlRuntime(
                 remote = null
                 remotePid = -1
                 ready = false
-                connectionFuture = CompletableFuture()
+                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
                 if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) {
                     restartCount += 1
                     lastRestartAtMillis = now
@@ -239,7 +239,7 @@ internal class IsolatedQwen3VlRuntime(
             synchronized(lock) {
                 remote = null
                 ready = false
-                connectionFuture = CompletableFuture()
+                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
             }
             continuation.resumeWithException(error)
         }
@@ -261,6 +261,10 @@ internal class IsolatedQwen3VlRuntime(
         if (action == NativeProcessRecoveryPolicy.Action.TERMINATE_PROCESS && pid != Process.myPid()) {
             // Kill only the dedicated same-UID process; never clear the in-flight JNI ownership locally.
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
+            synchronized(lock) {
+                remote = null
+                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
+            }
             Process.killProcess(pid)
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_KILLED")
         } else {
