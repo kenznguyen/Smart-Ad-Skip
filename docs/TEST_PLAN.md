@@ -50,3 +50,16 @@
 ## Device validation
 
 Initial target: Fruit Blast (`com.funnyvideo.cgame.fruitblast`) on a physical Android device. CI does not replace device validation.
+
+
+## P2.16 — Candidate discovery and click authorization
+
+- [x] OCR `Next`/`Skip` resolves to `NEXT_AD` without requiring Visual Verification.
+- [x] OCR `Close`/`Dismiss`/`X` resolves to `CLOSE` without requiring Visual Verification.
+- [x] Protected labels and phrases reject the candidate.
+- [x] Ambiguous OCR text does not resolve to an action.
+- [x] NO_TEXT requires symbol candidate discovery for `>>` or `X`; it does not grant click permission.
+- [x] Only `NEXT_AD` and `CLOSE` are eligible actions.
+- [x] Freshness, package, live Accessibility, Click Authorization, completed-ad block and one-attempt guard remain mandatory.
+- [x] Denial logs identify the stage and reason.
+- [ ] Validate OCR text buttons, symbol-only `>>` and `X`, protected CTA labels, and deny logs on a physical Fruit Blast device.

@@ -24,14 +24,14 @@ class AdStateClassifier(
         current: AccessibilitySnapshot,
         nowEpochMillis: Long,
         previous: AccessibilitySnapshot? = null,
-        hasVerifiedVisualAction: Boolean = false
+        hasDetectedAction: Boolean = false
     ): AdState {
         if (!isRelevantPackage(current.packageName)) return AdState.UNKNOWN
         if (!isFresh(current.observedAtEpochMillis, nowEpochMillis)) return AdState.UNKNOWN
         if (current.structuralNodes.isEmpty()) return AdState.UNKNOWN
 
         if (isKnownAdSdkActivity(current.windowClassName)) {
-            return if (hasVerifiedVisualAction) AdState.SKIP_AVAILABLE else AdState.AD_PLAYING
+            return if (hasDetectedAction) AdState.SKIP_AVAILABLE else AdState.AD_PLAYING
         }
         if (previous != null &&
             previous.packageName == current.packageName &&
