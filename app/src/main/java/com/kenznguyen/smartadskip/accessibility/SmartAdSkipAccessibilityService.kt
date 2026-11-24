@@ -582,9 +582,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 logDeny("live_accessibility", "no_unique_live_node_match")
                 return
             }
-            if (snapshot.packageName != TARGET_PACKAGE ||
-                !AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())
-            ) {
+            if (snapshot.packageName != TARGET_PACKAGE || !isAiFrameFresh(snapshot)) {
                 logDeny("freshness", "snapshot_stale_at_final_click_gate")
                 return
             }
