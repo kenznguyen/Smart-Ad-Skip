@@ -176,8 +176,9 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Floating overlay: ${if (overlayRequested) "Requested" else "Off"}", style = MaterialTheme.typography.bodyMedium)
         Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
-        Text("Latest observed package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Window class: ${currentSnapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Active window package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Activity candidate (window-state event): ${currentSnapshot?.activityClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Event source class (diagnostic): ${currentSnapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodySmall)
         Text("Event type: ${currentSnapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text(
             "Structural nodes: ${currentSnapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${currentSnapshot?.clickableNodeCount?.toString() ?: "—"}",
