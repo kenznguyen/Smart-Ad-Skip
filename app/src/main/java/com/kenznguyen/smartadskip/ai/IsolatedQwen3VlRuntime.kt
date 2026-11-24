@@ -37,7 +37,7 @@ internal class IsolatedQwen3VlRuntime(
     private val lock = Any()
     private val operationMutex = Mutex()
     private val requestIds = AtomicInteger(1)
-    private data class PendingRequest(val generation: Long, val handshake: Boolean, val continuation: kotlinx.coroutines.CancellableContinuation<Bundle>)
+    private data class PendingRequest(val generation: Long, val handshake: Boolean, val identity: ProcessIdentity, val nativeStartedAtMillis: Long?, val continuation: kotlinx.coroutines.CancellableContinuation<Bundle>)
     private val pending = java.util.concurrent.ConcurrentHashMap<Int, PendingRequest>()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var remote: Messenger? = null
@@ -361,10 +361,12 @@ internal class IsolatedQwen3VlRuntime(
         val generation = bindingGeneration
         val isHandshake = what == NativeInferenceProcessService.MSG_HELLO
         data.putLong(NativeInferenceProcessService.KEY_GENERATION, generation)
-        pending[id] = PendingRequest(generation, isHandshake, continuation)
+        val identity = synchronized(lock) { ProcessIdentity(bindingGeneration, remotePid, processSessionId, processStartTicks) }
+        val requestRecord = PendingRequest(generation, isHandshake, identity, inferenceStartedAtMillis, continuation)
+        pending[id] = requestRecord
         continuation.invokeOnCancellation {
             pending.remove(id)
-            if (killProcessOnCancel) terminateRemoteProcess("inference_cancelled_or_timed_out")
+            if (killProcessOnCancel) terminateRemoteProcess("inference_cancelled_or_timed_out", identity, requestRecord.nativeStartedAtMillis)
         }
         val target = synchronized(lock) { if (generation == bindingGeneration) remote else null }
         if (target == null) {
@@ -389,14 +391,17 @@ internal class IsolatedQwen3VlRuntime(
         }
     }
 
-    private fun terminateRemoteProcess(reason: String) {
-        val identity = synchronized(lock) { ProcessIdentity(bindingGeneration, remotePid, processSessionId, processStartTicks) }
-        val generation = identity.generation
-        val pid = identity.pid
-        val sessionId = identity.sessionId
-        val startTicks = identity.startTicks
+    private fun terminateRemoteProcess(
+        reason: String,
+        expectedIdentity: ProcessIdentity,
+        nativeStartedAtMillis: Long?
+    ) {
+        val generation = expectedIdentity.generation
+        val pid = expectedIdentity.pid
+        val sessionId = expectedIdentity.sessionId
+        val startTicks = expectedIdentity.startTicks
         val now = SystemClock.elapsedRealtime()
-        val age = inferenceStartedAtMillis?.let { (now - it).coerceAtLeast(0L) } ?: config.inferenceTimeoutMillis
+        val age = nativeStartedAtMillis?.let { (now - it).coerceAtLeast(0L) } ?: config.inferenceTimeoutMillis
         val action = NativeProcessRecoveryPolicy.evaluate(
             processAlive = pid > 0,
             inferenceAgeMillis = age,
@@ -405,9 +410,7 @@ internal class IsolatedQwen3VlRuntime(
             lastRestartAtMillis = lastRestartAtMillis,
             stuckAfterMillis = config.inferenceTimeoutMillis
         )
-        synchronized(lock) { ready = false }
         if (action == NativeProcessRecoveryPolicy.Action.TERMINATE_PROCESS && pid != Process.myPid()) {
-            // Kill only the dedicated same-UID process; never clear the in-flight JNI ownership locally.
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
             val terminated = synchronized(lock) {
                 if (!NativeProcessSessionPolicy.mayTerminate(
@@ -418,11 +421,11 @@ internal class IsolatedQwen3VlRuntime(
                     false
                 } else {
                     // Serialize reconnect state changes with the PID kill decision.
+                    ready = false
                     remote = null
                     remotePid = -1
                     processSessionId = null
                     processStartTicks = null
-                    ready = false
                     if (connectionFuture.isDone) connectionFuture = CompletableFuture()
                     Process.killProcess(pid)
                     true
@@ -434,8 +437,22 @@ internal class IsolatedQwen3VlRuntime(
             }
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_KILLED")
         } else {
-            recoveryDisabled = action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED ||
-                pid <= 0 || pid == Process.myPid()
+            val sameSession = synchronized(lock) {
+                val matches = NativeProcessSessionPolicy.mayTerminate(
+                    generation, bindingGeneration, pid, remotePid, sessionId, processSessionId,
+                    startTicks, processStartTicks
+                )
+                if (matches) {
+                    ready = false
+                    recoveryDisabled = action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED ||
+                        pid <= 0 || pid == Process.myPid()
+                }
+                matches
+            }
+            if (!sameSession) {
+                android.util.Log.w("SmartAdSkipQwen", "native_process_watchdog_skip_stale_identity generation=$generation pid=$pid")
+                return
+            }
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_RECOVERY_FAIL_CLOSED")
         }
         android.util.Log.w(
