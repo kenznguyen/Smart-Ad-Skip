@@ -27,6 +27,17 @@ internal class ScreenshotCaptureThrottle(
         return true
     }
 
+    /**
+     * Rolls back only the reservation created by a request that failed synchronously
+     * before Android accepted it. Callback failures must not call this method.
+     */
+    @Synchronized
+    fun release(requestAtMillis: Long) {
+        if (lastRequestAtMillis == requestAtMillis) {
+            lastRequestAtMillis = null
+        }
+    }
+
     @Synchronized
     fun reset() {
         lastRequestAtMillis = null
