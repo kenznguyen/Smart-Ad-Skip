@@ -23,6 +23,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.kenznguyen.smartadskip.ai.AdAction
 import com.kenznguyen.smartadskip.ai.AdFrameContext
 import com.kenznguyen.smartadskip.ai.AdUiElement
+import com.kenznguyen.smartadskip.ai.AutonomousTargetSafetyPolicy
 import com.kenznguyen.smartadskip.ai.AutonomousAdDecision
 import com.kenznguyen.smartadskip.ai.AutonomousAdDecisionEngine
 import com.kenznguyen.smartadskip.ai.LlamaCppQwen3VlRuntime
@@ -52,6 +53,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
     private val actionableNodeDetector = ActionableNodeDetector()
     private val actionExecutionPolicy = ActionExecutionPolicy()
+    private val autonomousTargetSafetyPolicy = AutonomousTargetSafetyPolicy()
     private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
     private var qwenRuntime: LlamaCppQwen3VlRuntime? = null
     private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
@@ -459,6 +461,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         if (action !in APPROVED_ACTIONS || confidence < AutonomousAdDecisionEngine.DEFAULT_MINIMUM_CONFIDENCE) {
             logDeny("ai_authorization", "invalid_model_action_or_confidence")
+            return
+        }
+        if (!autonomousTargetSafetyPolicy.canExecute(targetNode)) {
+            logDeny("ai_authorization", "protected_target_label")
             return
         }
         Log.i(TAG, "ai_decision action=$action confidence=$confidence rationale=${rationale.orEmpty()}")
