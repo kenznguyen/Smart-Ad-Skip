@@ -194,8 +194,12 @@ internal class IsolatedQwen3VlRuntime(
         val response = try {
             // Caller timeout does not release native ownership. The watchdog may terminate
             // the isolated process only after native-duration policy says it is stuck.
-            withTimeout(config.inferenceTimeoutMillis) {
-                request(NativeInferenceProcessService.MSG_INFER, bundle, killProcessOnCancel = true)
+            withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.INFER, config.inferenceTimeoutMillis)) {
+                request(
+                    NativeInferenceProcessService.MSG_INFER,
+                    bundle,
+                    killProcessOnCancel = NativeIpcTimeoutPolicy.terminateProcessOnTimeout(NativeIpcTimeoutPolicy.Request.INFER)
+                )
             }
         } finally {
             inferenceStartedAtMillis = null
@@ -223,8 +227,12 @@ internal class IsolatedQwen3VlRuntime(
             putInt(NativeInferenceProcessService.KEY_MAX_EDGE, config.maxImageEdge)
             putLong(NativeInferenceProcessService.KEY_TIMEOUT, config.inferenceTimeoutMillis)
         }
-        withTimeout(config.inferenceTimeoutMillis * 5L) {
-            request(NativeInferenceProcessService.MSG_LOAD, bundle, killProcessOnCancel = true)
+        withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.LOAD, config.inferenceTimeoutMillis)) {
+            request(
+                NativeInferenceProcessService.MSG_LOAD,
+                bundle,
+                killProcessOnCancel = NativeIpcTimeoutPolicy.terminateProcessOnTimeout(NativeIpcTimeoutPolicy.Request.LOAD)
+            )
         }
         ready = true
         AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_READY")
@@ -245,7 +253,7 @@ internal class IsolatedQwen3VlRuntime(
         }
         if (!alreadyConnected) {
             try {
-                withTimeout(CONNECTION_TIMEOUT_MILLIS) { connectionFuture.awaitResult() }
+                withTimeout(NativeIpcTimeoutPolicy.CONNECTION_TIMEOUT_MILLIS) { connectionFuture.awaitResult() }
             } catch (timeout: TimeoutCancellationException) {
                 handleRemoteLoss(
                     reason = "native_process_connection_timeout",
@@ -257,8 +265,12 @@ internal class IsolatedQwen3VlRuntime(
         }
         if (remotePid <= 0) {
             try {
-                withTimeout(REQUEST_TIMEOUT_MILLIS) {
-                    request(NativeInferenceProcessService.MSG_HELLO, Bundle())
+                withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.HELLO, config.inferenceTimeoutMillis)) {
+                    request(
+                        NativeInferenceProcessService.MSG_HELLO,
+                        Bundle(),
+                        killProcessOnCancel = NativeIpcTimeoutPolicy.terminateProcessOnTimeout(NativeIpcTimeoutPolicy.Request.HELLO)
+                    )
                 }
             } catch (timeout: TimeoutCancellationException) {
                 handleRemoteLoss(
@@ -381,8 +393,4 @@ internal class IsolatedQwen3VlRuntime(
             }
         }
 
-    private companion object {
-        const val CONNECTION_TIMEOUT_MILLIS = 10_000L
-        const val REQUEST_TIMEOUT_MILLIS = 5_000L
-    }
 }
