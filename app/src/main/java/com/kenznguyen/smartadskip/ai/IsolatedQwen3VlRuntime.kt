@@ -20,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -191,7 +192,11 @@ internal class IsolatedQwen3VlRuntime(
         }
         inferenceStartedAtMillis = SystemClock.elapsedRealtime()
         val response = try {
-            request(NativeInferenceProcessService.MSG_INFER, bundle, killProcessOnCancel = true)
+            // Caller timeout does not release native ownership. The watchdog may terminate
+            // the isolated process only after native-duration policy says it is stuck.
+            withTimeout(config.inferenceTimeoutMillis) {
+                request(NativeInferenceProcessService.MSG_INFER, bundle, killProcessOnCancel = true)
+            }
         } finally {
             inferenceStartedAtMillis = null
         }
@@ -238,8 +243,32 @@ internal class IsolatedQwen3VlRuntime(
             }
             remote != null
         }
-        if (!alreadyConnected) connectionFuture.awaitResult()
-        if (remotePid <= 0) request(NativeInferenceProcessService.MSG_HELLO, Bundle())
+        if (!alreadyConnected) {
+            try {
+                withTimeout(CONNECTION_TIMEOUT_MILLIS) { connectionFuture.awaitResult() }
+            } catch (timeout: TimeoutCancellationException) {
+                handleRemoteLoss(
+                    reason = "native_process_connection_timeout",
+                    unbind = true,
+                    allowRecovery = true
+                )
+                throw IllegalStateException("native_process_connection_timeout", timeout)
+            }
+        }
+        if (remotePid <= 0) {
+            try {
+                withTimeout(REQUEST_TIMEOUT_MILLIS) {
+                    request(NativeInferenceProcessService.MSG_HELLO, Bundle())
+                }
+            } catch (timeout: TimeoutCancellationException) {
+                handleRemoteLoss(
+                    reason = "native_process_hello_timeout",
+                    unbind = true,
+                    allowRecovery = true
+                )
+                throw IllegalStateException("native_process_hello_timeout", timeout)
+            }
+        }
     }
 
     private suspend fun request(
@@ -341,12 +370,19 @@ internal class IsolatedQwen3VlRuntime(
 
     private suspend fun CompletableFuture<Messenger>.awaitResult(): Messenger =
         suspendCancellableCoroutine { continuation ->
+            // The future belongs to the binding, not to an individual waiter. Cancelling
+            // one timed-out waiter must never cancel the shared connection result.
             whenComplete { value, failure ->
                 if (continuation.isActive) {
                     if (failure != null) continuation.resumeWithException(failure.cause ?: failure)
-                    else continuation.resume(value)
+                    else if (value != null) continuation.resume(value)
+                    else continuation.resumeWithException(IllegalStateException("native_process_empty_connection"))
                 }
             }
-            continuation.invokeOnCancellation { cancel(false) }
         }
+
+    private companion object {
+        const val CONNECTION_TIMEOUT_MILLIS = 10_000L
+        const val REQUEST_TIMEOUT_MILLIS = 5_000L
+    }
 }
