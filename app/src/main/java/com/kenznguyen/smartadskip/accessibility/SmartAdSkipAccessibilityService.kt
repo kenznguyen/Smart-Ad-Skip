@@ -359,7 +359,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             try {
                 runtime.load(modelFile, projectorFile)
-                if (!kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!.isActive) return@launch
+                if (!runtime.isModelReady) return@launch
                 AiRuntimeDashboardStatus.setReady()
                 aiDecisionEngine = AutonomousAdDecisionEngine(
                     runtime,
