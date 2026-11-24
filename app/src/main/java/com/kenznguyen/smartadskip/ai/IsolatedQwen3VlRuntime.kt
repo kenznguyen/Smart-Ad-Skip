@@ -410,7 +410,7 @@ internal class IsolatedQwen3VlRuntime(
                 if (!NativeProcessSessionPolicy.mayTerminate(
                         generation, bindingGeneration, pid, remotePid, sessionId, processSessionId,
                         startTicks, processStartTicks
-                    ) && readProcessStartTicks(pid) == startTicks
+                    ) || readProcessStartTicks(pid) != startTicks
                 ) {
                     false
                 } else {
@@ -482,6 +482,7 @@ internal class IsolatedQwen3VlRuntime(
             remote = null
             remotePid = -1
             processSessionId = null
+            processStartTicks = null
             ready = false
         }
         failPending("native_process_proxy_closed")
