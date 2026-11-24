@@ -39,6 +39,13 @@ internal class ScreenshotCaptureThrottle(
     }
 
     @Synchronized
+    fun millisUntilAllowed(nowMillis: Long): Long {
+        val lastRequest = lastRequestAtMillis ?: return 0L
+        if (nowMillis < lastRequest) return 0L
+        return (minIntervalMillis - (nowMillis - lastRequest)).coerceAtLeast(0L)
+    }
+
+    @Synchronized
     fun reset() {
         lastRequestAtMillis = null
     }
