@@ -11,12 +11,14 @@ import android.os.Messenger
 import android.os.Process
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.util.UUID
 
 /** Owns every llama.cpp/JNI object in the dedicated :qwen_native process. */
 class NativeInferenceProcessService : Service() {
     private lateinit var worker: HandlerThread
     private lateinit var messenger: Messenger
     private var runtime: LlamaCppQwen3VlRuntime? = null
+    private val processSessionId = UUID.randomUUID().toString()
 
     override fun onCreate() {
         super.onCreate()
@@ -31,7 +33,11 @@ class NativeInferenceProcessService : Service() {
 
     private fun handle(message: Message) {
         val request = message.data
-        val response = Bundle().apply { putInt(KEY_PID, Process.myPid()) }
+        val response = Bundle().apply {
+            putInt(KEY_PID, Process.myPid())
+            putString(KEY_PROCESS_SESSION, processSessionId)
+            putLong(KEY_GENERATION, request.getLong(KEY_GENERATION, -1L))
+        }
         try {
             when (message.what) {
                 MSG_HELLO -> {
@@ -124,6 +130,8 @@ class NativeInferenceProcessService : Service() {
         const val KEY_STATUS = "status"
         const val KEY_ERROR = "error"
         const val KEY_PID = "pid"
+        const val KEY_PROCESS_SESSION = "process_session"
+        const val KEY_GENERATION = "binding_generation"
         const val KEY_NATIVE_STATE = "native_state"
         const val KEY_THREADS = "threads"
         const val KEY_CONTEXT = "context"
