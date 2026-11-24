@@ -75,6 +75,15 @@ internal class IsolatedQwen3VlRuntime(
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            if (closed) {
+                synchronized(lock) {
+                    remote = null
+                    ready = false
+                    connectionFuture = CompletableFuture()
+                }
+                failPending("native_process_proxy_closed")
+                return
+            }
             val now = SystemClock.elapsedRealtime()
             val action = NativeProcessRecoveryPolicy.evaluate(
                 processAlive = false,
