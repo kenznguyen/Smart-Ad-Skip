@@ -38,3 +38,4 @@ class AiRuntimeDashboardStatusTest {
         assertEquals(1L, state.waitCount)
     }
 }
+
