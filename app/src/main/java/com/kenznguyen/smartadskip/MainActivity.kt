@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
+import com.kenznguyen.smartadskip.ai.AiRuntimeDashboardStatus
+import com.kenznguyen.smartadskip.ai.QwenRuntimePhase
 import com.kenznguyen.smartadskip.ai.ModelPackageImporter
 import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshotPolicy
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
@@ -85,6 +87,7 @@ private fun AccessibilityMonitorScreen() {
             }
         }
     }
+    val aiRuntimeStatus by AiRuntimeDashboardStatus.state.collectAsState()
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
     val currentSnapshot = snapshot
@@ -121,7 +124,41 @@ private fun AccessibilityMonitorScreen() {
         Button(onClick = { modelPicker.launch(arrayOf("application/zip", "application/octet-stream")) }) {
             Text("Import Qwen3-VL model ZIP")
         }
+
         Text(modelImportStatus, style = MaterialTheme.typography.bodySmall)
+        Text("P2.17 · Autonomous AI Runtime", style = MaterialTheme.typography.titleMedium)
+        val modelFilesPresent = File(
+            context.filesDir,
+            "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.MODEL_FILE
+        ).isFile
+        val runtimeLabel = when (aiRuntimeStatus.phase) {
+            QwenRuntimePhase.NOT_IMPORTED -> if (modelFilesPresent) {
+                if (isConnected) "IMPORTED · SERVICE RECONNECT REQUIRED" else "IMPORTED · WAITING FOR ACCESSIBILITY SERVICE"
+            } else "NOT IMPORTED"
+            QwenRuntimePhase.LOADING -> "LOADING"
+            QwenRuntimePhase.READY -> "READY"
+            QwenRuntimePhase.FAILED -> "FAILED"
+        }
+        Text("Qwen3-VL runtime: ${runtimeLabel}", style = MaterialTheme.typography.bodyLarge)
+        Text("Runtime detail: ${aiRuntimeStatus.detail}", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Inference settings: CPU ${aiRuntimeStatus.config.cpuThreads} threads · context ${aiRuntimeStatus.config.contextSize} · batch ${aiRuntimeStatus.config.batchSize}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Image edge: ${aiRuntimeStatus.config.maxImageEdge}px · timeout ${aiRuntimeStatus.config.inferenceTimeoutMillis}ms · confidence ≥ 0.85 · frame age ≤ 1500ms",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text("Latest model decision: ${aiRuntimeStatus.lastAction}", style = MaterialTheme.typography.bodyMedium)
+        Text("Decision reason: ${aiRuntimeStatus.lastReason}", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Frame ID: ${if (aiRuntimeStatus.lastFrameId > 0L) aiRuntimeStatus.lastFrameId.toString() else "—"} · decisions ${aiRuntimeStatus.inferenceCount} · WAIT ${aiRuntimeStatus.waitCount} · action suggestions ${aiRuntimeStatus.actionCount}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Model action suggestions are not confirmed clicks. Shared safety checks and live Accessibility-node validation remain mandatory.",
+            style = MaterialTheme.typography.bodySmall
+        )
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
