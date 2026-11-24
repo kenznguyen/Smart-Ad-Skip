@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-enum class QwenRuntimePhase { NOT_IMPORTED, LOADING, READY, FAILED }
+enum class QwenRuntimePhase { NOT_IMPORTED, LOADING, READY, FAILED, STOPPED }
 
 data class AiRuntimeDashboardSnapshot(
     val phase: QwenRuntimePhase = QwenRuntimePhase.NOT_IMPORTED,
@@ -43,6 +43,13 @@ object AiRuntimeDashboardStatus {
         mutableState.value = mutableState.value.copy(
             phase = QwenRuntimePhase.READY,
             detail = "qwen3_vl_ready"
+        )
+    }
+
+    fun setStopped() {
+        mutableState.value = mutableState.value.copy(
+            phase = QwenRuntimePhase.STOPPED,
+            detail = "accessibility_service_disconnected"
         )
     }
 
