@@ -6,6 +6,7 @@ import android.graphics.Rect
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -62,6 +63,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
     private var aiInitializationStarted = false
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
+    private val screenshotCaptureThrottle = ScreenshotCaptureThrottle()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
     private var previousSnapshot: AccessibilitySnapshot? = null
@@ -264,6 +266,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         lastActionableUiState = null
         attemptedControlKeys.clear()
         screenshotLifecycle.reset()
+        screenshotCaptureThrottle.reset()
         temporalPatternAnalyzer.reset()
         AdDetectionRepository.reset()
         AccessibilityMonitorRepository.setConnected(false)
@@ -292,6 +295,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         val requestId = screenshotLifecycle.begin() ?: run {
             logDeny("screenshot", "capture_already_in_flight")
+            return
+        }
+        // Android rejects takeScreenshot requests made less than 1 second apart.
+        // Use monotonic time and reserve the interval only after single-flight succeeds.
+        if (!screenshotCaptureThrottle.tryAcquire(SystemClock.elapsedRealtime())) {
+            screenshotLifecycle.finish(requestId)
+            logDeny("screenshot", "capture_throttled_min_interval")
             return
         }
 
