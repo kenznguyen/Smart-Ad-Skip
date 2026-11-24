@@ -107,7 +107,7 @@ class LlamaCppQwen3VlRuntime(
     }
 
     private fun buildPrompt(context: AdFrameContext): String {
-        val imageScale = minOf(1f, MAX_IMAGE_EDGE.toFloat() / maxOf(context.screenWidth, context.screenHeight))
+        val imageScale = minOf(1f, config.maxImageEdge.toFloat() / maxOf(context.screenWidth, context.screenHeight))
         val elements = context.elements.joinToString(",\\n") { element ->
             val bounds = element.bounds
             val left = (bounds.left * imageScale).toInt()
