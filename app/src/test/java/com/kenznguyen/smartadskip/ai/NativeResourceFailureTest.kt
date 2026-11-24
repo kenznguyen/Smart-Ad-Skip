@@ -17,7 +17,7 @@ class NativeResourceFailureTest {
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
             val failure = runCatching {
-                lifecycle.infer<String> { throw IllegalStateException("injected_native_inference_failure") }
+                lifecycle.infer<String>(requestId = 1L) { throw IllegalStateException("injected_native_inference_failure") }
                     .get(2, TimeUnit.SECONDS)
             }.exceptionOrNull()
 
