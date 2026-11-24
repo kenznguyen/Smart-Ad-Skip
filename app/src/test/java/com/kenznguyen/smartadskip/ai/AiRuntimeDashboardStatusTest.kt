@@ -13,6 +13,13 @@ class AiRuntimeDashboardStatusTest {
         assertEquals(QwenRuntimePhase.READY, AiRuntimeDashboardStatus.state.value.phase)
     }
 
+    @Test fun stoppedRuntimeIsNotReportedAsReady() {
+        AiRuntimeDashboardStatus.reset()
+        AiRuntimeDashboardStatus.setReady()
+        AiRuntimeDashboardStatus.setStopped()
+        assertEquals(QwenRuntimePhase.STOPPED, AiRuntimeDashboardStatus.state.value.phase)
+    }
+
     @Test fun failuresAndLastDecisionAreReportedWithoutAuthorizingActions() {
         AiRuntimeDashboardStatus.reset()
         AiRuntimeDashboardStatus.setFailed("native_load_failed")
