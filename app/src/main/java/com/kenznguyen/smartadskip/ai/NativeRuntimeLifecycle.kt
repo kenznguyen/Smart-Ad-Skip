@@ -7,8 +7,7 @@ import java.util.concurrent.Executors
 
 /**
  * Serializes every JNI lifecycle operation. Inference is single-flight; close is
- * non-blocking and queued behind any native call already executing. Queued inference
- * observes the close request and is discarded before entering JNI.
+ * non-blocking and queued behind any native call already executing.
  */
 internal class NativeRuntimeLifecycle(
     private val executor: ExecutorService = NativeRuntimeExecutor.executor
@@ -78,14 +77,16 @@ internal class NativeRuntimeLifecycle(
         val future = CompletableFuture<Unit>()
         closeFuture = future
         executor.execute {
+            var failure: Throwable? = null
             try {
                 nativeClose()
-                future.complete(Unit)
             } catch (error: Throwable) {
-                future.completeExceptionally(error)
+                failure = error
             } finally {
                 synchronized(lock) { currentState = State.CLOSED }
             }
+            if (failure == null) future.complete(Unit)
+            else future.completeExceptionally(failure)
         }
         future
     }
