@@ -15,6 +15,7 @@ class AccessibilitySnapshotPolicyTest {
             packageName = "com.example.game",
             eventType = 32,
             activityClassName = "com.example.game.GameActivity",
+            isWindowStateChanged = true,
             nodeCount = 12,
             clickableNodeCount = 3
         )
@@ -26,12 +27,28 @@ class AccessibilitySnapshotPolicyTest {
         assertEquals(3, snapshot.clickableNodeCount)
     }
 
+
+    @Test
+    fun create_ignoresSourceViewClassForNonWindowStateEvents() {
+        val snapshot = policy.create(
+            packageName = "com.example.game",
+            eventType = 2048,
+            activityClassName = "android.widget.FrameLayout",
+            isWindowStateChanged = false,
+            nodeCount = 4,
+            clickableNodeCount = 1
+        )
+
+        assertNull(snapshot.activityClassName)
+    }
+
     @Test
     fun create_dropsBlankPackageAndActivityNames() {
         val snapshot = policy.create(
             packageName = "  ",
             eventType = 0,
             activityClassName = " ",
+            isWindowStateChanged = true,
             nodeCount = 1,
             clickableNodeCount = 1
         )
@@ -46,6 +63,7 @@ class AccessibilitySnapshotPolicyTest {
             packageName = "com.example.game",
             eventType = 1,
             activityClassName = null,
+            isWindowStateChanged = false,
             nodeCount = 10_000,
             clickableNodeCount = 9_000
         )
@@ -74,6 +92,7 @@ class AccessibilitySnapshotPolicyTest {
             packageName = "com.example.game",
             eventType = 1,
             activityClassName = "com.example.game.GameActivity",
+            isWindowStateChanged = true,
             nodeCount = 2,
             clickableNodeCount = 1
         )
