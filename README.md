@@ -31,4 +31,4 @@ The native build targets `arm64-v8a`. The APK does not bundle model weights. Imp
 
 ## Project status
 
-The local runtime and Accessibility wiring are implemented on the P2.17 feature branch. Native CI and physical Fruit Blast inference still require successful verification; this branch is not yet declared production-ready.
+The local runtime and Accessibility wiring are implemented on the P2.17 feature branch. Unit tests and native Android CI passed; physical Fruit Blast inference and click behavior still require device verification. This branch is not yet declared production-ready.
