@@ -1,5 +1,6 @@
 package com.kenznguyen.smartadskip.ai
 
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
@@ -17,7 +18,7 @@ class ModelPackageImporterTest {
     @Test fun importsOnlyWhenBothGgufFilesMatchManifestHashes() {
         val root = createTempDir(prefix = "model-import-test")
         try {
-            val result = ModelPackageImporter(root).importPackage(packageZip(model, mmproj))
+            val result = ModelPackageImporter(root).importPackage(ByteArrayInputStream(packageZip(model, mmproj)))
             assertEquals(true, result.modelFile.isFile)
             assertEquals(true, result.projectorFile.isFile)
             assertEquals(sha256(model), sha256(result.modelFile.readBytes()))
@@ -31,7 +32,7 @@ class ModelPackageImporterTest {
         val root = createTempDir(prefix = "model-import-test")
         try {
             assertThrows(IllegalArgumentException::class.java) {
-                ModelPackageImporter(root).importPackage(packageZip(model, mmproj, "0".repeat(64)))
+                ModelPackageImporter(root).importPackage(ByteArrayInputStream(packageZip(model, mmproj, "0".repeat(64))))
             }
             assertEquals(false, File(root, ModelPackageImporter.MODEL_DIRECTORY).exists())
         } finally {
@@ -43,7 +44,7 @@ class ModelPackageImporterTest {
         val root = createTempDir(prefix = "model-import-test")
         try {
             assertThrows(IllegalArgumentException::class.java) {
-                ModelPackageImporter(root).importPackage(packageZip(byteArrayOf(0x4e, 0x4f, 0x50, 0x45, 3, 0, 0, 0), mmproj))
+                ModelPackageImporter(root).importPackage(ByteArrayInputStream(packageZip(byteArrayOf(0x4e, 0x4f, 0x50, 0x45, 3, 0, 0, 0), mmproj)))
             }
         } finally {
             root.deleteRecursively()
