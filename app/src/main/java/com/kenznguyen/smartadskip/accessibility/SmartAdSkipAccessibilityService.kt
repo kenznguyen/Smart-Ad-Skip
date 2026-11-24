@@ -16,14 +16,21 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
+        // The active window root is the source of truth for the foreground package.
+        // event.packageName describes the event source and can belong to a stale/child node.
+        val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
+        val activePackageName = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
         val counts = runCatching {
-            countVisibleNodes(rootInActiveWindow)
+            countVisibleNodes(activeRoot)
         }.getOrDefault(NodeCounts(0, 0))
 
+        // className is an Activity candidate only on a window-state transition.
+        // For content/window events it is merely the class of the event's source view.
+        val isWindowStateChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         val snapshot = snapshotPolicy.create(
-            packageName = event.packageName?.toString(),
+            packageName = activePackageName,
             eventType = event.eventType,
-            windowClassName = event.className,
+            activityClassName = event.className.takeIf { isWindowStateChanged },
             nodeCount = counts.total,
             clickableNodeCount = counts.clickable
         )
