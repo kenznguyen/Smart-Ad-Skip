@@ -20,6 +20,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.kenznguyen.smartadskip.ai.AiRuntimeDashboardStatus
 import com.kenznguyen.smartadskip.ai.AdAction
 import com.kenznguyen.smartadskip.ai.AdFrameContext
 import com.kenznguyen.smartadskip.ai.AdUiElement
@@ -344,14 +345,19 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val modelDirectory = File(filesDir, "models/${ModelPackageImporter.MODEL_DIRECTORY}")
         val modelFile = File(modelDirectory, ModelPackageImporter.MODEL_FILE)
         val projectorFile = File(modelDirectory, ModelPackageImporter.PROJECTOR_FILE)
-        if (!modelFile.isFile || !projectorFile.isFile) return
+        if (!modelFile.isFile || !projectorFile.isFile) {
+            AiRuntimeDashboardStatus.setNotImported()
+            return
+        }
 
         aiInitializationStarted = true
+        AiRuntimeDashboardStatus.setLoading(aiRuntimeConfig)
         val runtime = LlamaCppQwen3VlRuntime(aiRuntimeConfig)
         serviceScope.launch {
             runCatching { runtime.load(modelFile, projectorFile) }
                 .onSuccess {
                     qwenRuntime = runtime
+                    AiRuntimeDashboardStatus.setReady()
                     aiDecisionEngine = AutonomousAdDecisionEngine(
                         runtime,
                         inferenceTimeoutMillis = aiRuntimeConfig.inferenceTimeoutMillis
@@ -360,6 +366,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 }
                 .onFailure {
                     runtime.close()
+                    AiRuntimeDashboardStatus.setFailed("model_load_failed=${it.javaClass.simpleName}")
                     logDeny("ai_runtime", "model_load_failed=${it.javaClass.simpleName}")
                 }
         }
@@ -437,8 +444,22 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         return@withContext
                     }
                     when (decision) {
-                        is AutonomousDecision.Wait -> logDeny("ai_decision", decision.reason)
+                        is AutonomousDecision.Wait -> {
+                            AiRuntimeDashboardStatus.recordDecision(
+                                action = "WAIT",
+                                reason = decision.reason,
+                                frameId = frame.frameId,
+                                observedAtEpochMillis = frame.observedAtEpochMillis
+                            )
+                            logDeny("ai_decision", decision.reason)
+                        }
                         is AutonomousDecision.Act -> {
+                            AiRuntimeDashboardStatus.recordDecision(
+                                action = decision.action.name,
+                                reason = "model_selected_target",
+                                frameId = frame.frameId,
+                                observedAtEpochMillis = frame.observedAtEpochMillis
+                            )
                             val index = decision.target.id.removePrefix("node-").toIntOrNull()
                             val targetNode = index?.let(snapshot.structuralNodes::getOrNull)
                             val action = when (decision.action) {
@@ -462,6 +483,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     }
                 }
             } catch (error: Exception) {
+                AiRuntimeDashboardStatus.recordDecision(
+                    action = "WAIT",
+                    reason = "inference_failed=${error.javaClass.simpleName}",
+                    frameId = requestId,
+                    observedAtEpochMillis = snapshot.observedAtEpochMillis
+                )
                 logDeny("ai_decision", "inference_failed=${error.javaClass.simpleName}")
             } finally {
                 bitmap.recycle()
