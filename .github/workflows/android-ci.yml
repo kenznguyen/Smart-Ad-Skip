@@ -55,6 +55,17 @@ jobs:
       - name: Assemble debug APK
         run: gradle :app:assembleDebug
 
+      - name: Compile Android instrumentation tests
+        run: gradle :app:assembleDebugAndroidTest
+
+      - name: Upload instrumentation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-ad-skip-debug-android-test-apk
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
