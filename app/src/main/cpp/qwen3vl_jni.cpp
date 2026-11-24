@@ -25,6 +25,7 @@ struct Runtime {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
     mtmd_context * vision = nullptr;
+    int32_t batch_size = 0;
     common_chat_templates_ptr templates;
 
     ~Runtime() {
@@ -92,6 +93,7 @@ Java_com_kenznguyen_smartadskip_ai_NativeQwen3Vl_load(
         if (!next->model) throw std::runtime_error("Qwen3-VL language GGUF failed to load");
 
         llama_context_params contextParams = llama_context_default_params();
+        next->batch_size = static_cast<int32_t>(batchSize);
         contextParams.n_ctx = static_cast<uint32_t>(contextSize);
         contextParams.n_batch = static_cast<uint32_t>(batchSize);
         contextParams.n_ubatch = static_cast<uint32_t>(batchSize);
@@ -168,7 +170,7 @@ Java_com_kenznguyen_smartadskip_ai_NativeQwen3Vl_infer(
         }
         llama_pos position = 0;
         if (mtmd_helper_eval_chunks(runtime->vision, runtime->context, chunks.get(),
-                                    0, 0, static_cast<int32_t>(llama_n_batch(runtime->context)), true, &position) != 0) {
+                                    0, 0, runtime->batch_size, true, &position) != 0) {
             throw std::runtime_error("MTMD image/prompt evaluation failed");
         }
 
