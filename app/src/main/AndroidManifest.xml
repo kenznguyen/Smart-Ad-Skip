@@ -15,6 +15,10 @@
         </activity>
 
         <service
+            android:name=".ai.NativeInferenceProcessService"
+            android:exported="false"
+            android:process=":qwen_native" />
+        <service
             android:name=".accessibility.SmartAdSkipAccessibilityService"
             android:exported="true"
             android:label="@string/app_name"
