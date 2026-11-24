@@ -369,7 +369,10 @@ internal class IsolatedQwen3VlRuntime(
     }
 
     private fun terminateRemoteProcess(reason: String) {
-        val pid = remotePid
+        val identity = synchronized(lock) { Triple(bindingGeneration, remotePid, processSessionId) }
+        val generation = identity.first
+        val pid = identity.second
+        val sessionId = identity.third
         val now = SystemClock.elapsedRealtime()
         val age = inferenceStartedAtMillis?.let { (now - it).coerceAtLeast(0L) } ?: config.inferenceTimeoutMillis
         val action = NativeProcessRecoveryPolicy.evaluate(
@@ -384,12 +387,27 @@ internal class IsolatedQwen3VlRuntime(
         if (action == NativeProcessRecoveryPolicy.Action.TERMINATE_PROCESS && pid != Process.myPid()) {
             // Kill only the dedicated same-UID process; never clear the in-flight JNI ownership locally.
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
-            synchronized(lock) {
-                remote = null
-                remotePid = -1
-                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
+            val terminated = synchronized(lock) {
+                if (!NativeProcessSessionPolicy.mayTerminate(
+                        generation, bindingGeneration, pid, remotePid, sessionId, processSessionId
+                    )
+                ) {
+                    false
+                } else {
+                    // Serialize reconnect state changes with the PID kill decision.
+                    remote = null
+                    remotePid = -1
+                    processSessionId = null
+                    ready = false
+                    if (connectionFuture.isDone) connectionFuture = CompletableFuture()
+                    Process.killProcess(pid)
+                    true
+                }
             }
-            Process.killProcess(pid)
+            if (!terminated) {
+                android.util.Log.w("SmartAdSkipQwen", "native_process_watchdog_skip_stale_identity generation=$generation pid=$pid")
+                return
+            }
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_KILLED")
         } else {
             recoveryDisabled = action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED ||
