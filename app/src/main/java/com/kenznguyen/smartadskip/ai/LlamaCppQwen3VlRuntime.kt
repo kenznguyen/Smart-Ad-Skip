@@ -64,20 +64,17 @@ class LlamaCppQwen3VlRuntime(
     override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
         check(isModelReady) { "qwen3_vl_not_ready" }
         val prepared = prepareInference(context)
-        return try {
-            val raw = lifecycle.infer(requestId = context.frameId) {
-                NativeQwen3Vl.infer(
-                    prepared.pixels,
-                    prepared.width,
-                    prepared.height,
-                    prepared.prompt
-                )
-            }.awaitResult { lifecycle.markInferenceCallerTimedOut() }
-            Qwen3VlOutputParser.parse(raw)
-        } finally {
-            // The JNI lambda retains the pixel array until the native call actually returns.
-            // Bitmap resources are already recycled by prepareInference().
-        }
+        // The queued JNI lambda retains prepared.pixels even if this caller times out.
+        // Bitmap resources were already recycled after the pixel copy.
+        val raw = lifecycle.infer(requestId = context.frameId) {
+            NativeQwen3Vl.infer(
+                prepared.pixels,
+                prepared.width,
+                prepared.height,
+                prepared.prompt
+            )
+        }.awaitResult { lifecycle.markInferenceCallerTimedOut() }
+        return Qwen3VlOutputParser.parse(raw)
     }
 
     private data class PreparedInference(
