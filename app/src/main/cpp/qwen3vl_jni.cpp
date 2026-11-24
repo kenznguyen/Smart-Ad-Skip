@@ -71,7 +71,7 @@ long elapsedMs(std::chrono::steady_clock::time_point start) {
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_kenznguyen_smartadskip_ai_NativeQwen3Vl_load(
-        JNIEnv * env, jclass, jstring modelPath, jstring projectorPath, jint threads) {
+        JNIEnv * env, jclass, jstring modelPath, jstring projectorPath, jint threads, jint contextSize, jint batchSize) {
     std::lock_guard<std::mutex> lock(runtimeMutex);
     try {
         std::call_once(backendInit, [] {
@@ -79,6 +79,10 @@ Java_com_kenznguyen_smartadskip_ai_NativeQwen3Vl_load(
             ggml_backend_load_all();
             llama_backend_init();
         });
+        if (threads < 1 || threads > 8 || contextSize < 512 || contextSize > 8192 ||
+            batchSize < 64 || batchSize > 1024 || batchSize > contextSize) {
+            throw std::runtime_error("Invalid Qwen runtime configuration");
+        }
         auto next = std::make_unique<Runtime>();
         const std::string modelFile = fromJava(env, modelPath);
         const std::string projectorFile = fromJava(env, projectorPath);
@@ -88,18 +92,18 @@ Java_com_kenznguyen_smartadskip_ai_NativeQwen3Vl_load(
         if (!next->model) throw std::runtime_error("Qwen3-VL language GGUF failed to load");
 
         llama_context_params contextParams = llama_context_default_params();
-        contextParams.n_ctx = 4096;
-        contextParams.n_batch = 512;
-        contextParams.n_ubatch = 512;
-        contextParams.n_threads = std::max(2, static_cast<int>(threads));
-        contextParams.n_threads_batch = std::max(2, static_cast<int>(threads));
+        contextParams.n_ctx = static_cast<uint32_t>(contextSize);
+        contextParams.n_batch = static_cast<uint32_t>(batchSize);
+        contextParams.n_ubatch = static_cast<uint32_t>(batchSize);
+        contextParams.n_threads = static_cast<int32_t>(threads);
+        contextParams.n_threads_batch = static_cast<int32_t>(threads);
         next->context = llama_init_from_model(next->model, contextParams);
         if (!next->context) throw std::runtime_error("Could not create llama context");
 
         mtmd_context_params visionParams = mtmd_context_params_default();
         visionParams.use_gpu = false;
         visionParams.print_timings = false;
-        visionParams.n_threads = std::max(2, static_cast<int>(threads));
+        visionParams.n_threads = static_cast<int32_t>(threads);
         visionParams.warmup = false;
         next->vision = mtmd_init_from_file(projectorFile.c_str(), next->model, visionParams);
         if (!next->vision || !mtmd_support_vision(next->vision)) {
@@ -164,7 +168,7 @@ Java_com_kenznguyen_smartadskip_ai_NativeQwen3Vl_infer(
         }
         llama_pos position = 0;
         if (mtmd_helper_eval_chunks(runtime->vision, runtime->context, chunks.get(),
-                                    0, 0, 512, true, &position) != 0) {
+                                    0, 0, static_cast<int32_t>(llama_n_batch(runtime->context)), true, &position) != 0) {
             throw std::runtime_error("MTMD image/prompt evaluation failed");
         }
 
