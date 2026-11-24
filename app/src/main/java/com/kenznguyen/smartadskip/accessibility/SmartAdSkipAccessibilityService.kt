@@ -383,14 +383,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             screenshotLifecycle.finish(requestId)
             return
         }
-        val elements = snapshot.structuralNodes.mapIndexed { index, node ->
+        val elements = snapshot.structuralNodes.mapIndexedNotNull { index, node ->
+            if (!node.clickable || !node.enabled || !node.visible || !node.bounds.hasArea) return@mapIndexedNotNull null
             AdUiElement(
                 id = "node-$index",
                 bounds = node.bounds,
                 description = node.text ?: node.contentDescription,
-                clickable = node.clickable && node.enabled && node.visible
+                clickable = true
             )
-        }
+        }.take(MAX_AI_ELEMENTS)
         val frame = AdFrameContext(
             packageName = snapshot.packageName.orEmpty(),
             observedAtEpochMillis = snapshot.observedAtEpochMillis,
@@ -644,6 +645,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private companion object {
         const val TAG = "SmartAdSkip"
         const val MAX_NODES_PER_EVENT = 200
+        const val MAX_AI_ELEMENTS = 64
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
     }
