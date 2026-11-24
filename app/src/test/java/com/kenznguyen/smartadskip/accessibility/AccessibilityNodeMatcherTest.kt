@@ -23,7 +23,7 @@ class AccessibilityNodeMatcherTest {
     }
 
     @Test
-    fun usesNearestStructuralMatchForSymbolOnlyNodeWhenBoundsShift() {
+    fun rejectsUnlabelledSymbolOnlyNodeEvenWhenBoundsMatch() {
         val detected = node(
             className = "android.widget.ImageButton",
             text = null,
