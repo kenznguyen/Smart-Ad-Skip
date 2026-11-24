@@ -9,19 +9,22 @@ class ActionExecutionPolicyTest {
     private val policy = ActionExecutionPolicy()
 
     @Test
-    fun permitsApprovedVisuallyConfirmedActionsInUnknownAdState() {
-        assertTrue(policy.canClick(AdState.UNKNOWN, VisualActionType.NEXT_AD))
-        assertTrue(policy.canClick(AdState.UNKNOWN, VisualActionType.CLOSE))
+    fun blocksEveryActionWhenAdStateIsUnknown() {
+        assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.NEXT_AD))
+        assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.CLOSE))
     }
 
     @Test
-    fun blocksUnknownVisualActionEvenWhenAdStateIsUnknown() {
-        assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.UNKNOWN))
+    fun blocksUnknownVisualActionInConfirmedAdContext() {
+        assertFalse(policy.canClick(AdState.AD_PLAYING, VisualActionType.UNKNOWN))
+        assertFalse(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.UNKNOWN))
     }
 
     @Test
-    fun permitsApprovedActionsInClassifierConfirmedActiveAdContext() {
+    fun permitsOnlyApprovedActionsInConfirmedAdContext() {
         assertTrue(policy.canClick(AdState.AD_PLAYING, VisualActionType.NEXT_AD))
+        assertTrue(policy.canClick(AdState.AD_PLAYING, VisualActionType.CLOSE))
+        assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.NEXT_AD))
         assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.CLOSE))
     }
 
