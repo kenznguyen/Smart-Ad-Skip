@@ -364,7 +364,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             try {
                 runtime.load(modelFile, projectorFile)
-                if (!runtime.isModelReady) return@launch
+                if (qwenRuntime !== runtime || !runtime.isModelReady) return@launch
                 AiRuntimeDashboardStatus.setReady()
                 aiDecisionEngine = AutonomousAdDecisionEngine(
                     runtime,
@@ -376,8 +376,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 throw cancelled
             } catch (error: Exception) {
                 runtime.close()
-                AiRuntimeDashboardStatus.setFailed("model_load_failed=${error.javaClass.simpleName}")
-                logDeny("ai_runtime", "model_load_failed=${error.javaClass.simpleName}")
+                if (qwenRuntime === runtime) {
+                    qwenRuntime = null
+                    AiRuntimeDashboardStatus.setFailed("model_load_failed=${error.javaClass.simpleName}")
+                    logDeny("ai_runtime", "model_load_failed=${error.javaClass.simpleName}")
+                }
             }
         }
     }
