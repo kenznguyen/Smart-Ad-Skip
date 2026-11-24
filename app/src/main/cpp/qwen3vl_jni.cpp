@@ -39,7 +39,7 @@ std::unique_ptr<Runtime> runtime;
 std::once_flag backendInit;
 
 void logCallback(ggml_log_level level, const char * message, void *) {
-    if (!message || level > GGML_LOG_LEVEL_WARN) return;
+    if (!message || (level != GGML_LOG_LEVEL_ERROR && level != GGML_LOG_LEVEL_WARN)) return;
     __android_log_write(level == GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN, TAG, message);
 }
 void throwJava(JNIEnv * env, const std::string & message) {
