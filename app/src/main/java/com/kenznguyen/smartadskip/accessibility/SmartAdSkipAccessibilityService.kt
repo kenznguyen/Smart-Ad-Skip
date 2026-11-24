@@ -30,7 +30,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val snapshot = snapshotPolicy.create(
             packageName = activePackageName,
             eventType = event.eventType,
-            activityClassName = event.className.takeIf { isWindowStateChanged },
+            activityClassName = event.className,
+            isWindowStateChanged = isWindowStateChanged,
             nodeCount = counts.total,
             clickableNodeCount = counts.clickable
         )
