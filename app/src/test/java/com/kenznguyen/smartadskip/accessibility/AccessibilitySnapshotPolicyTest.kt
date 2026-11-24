@@ -78,6 +78,7 @@ class AccessibilitySnapshotPolicyTest {
             packageName = "com.example.game",
             eventType = 1,
             activityClassName = null,
+            isWindowStateChanged = false,
             nodeCount = -4,
             clickableNodeCount = -2
         )
