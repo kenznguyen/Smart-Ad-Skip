@@ -26,7 +26,7 @@ class AdStateClassifierTest {
     @Test
     fun sourceViewClassCannotEstablishAdContextWithoutActivityIdentity() {
         val current = snapshot(nodes = listOf(node(null)))
-            .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
     }
 
