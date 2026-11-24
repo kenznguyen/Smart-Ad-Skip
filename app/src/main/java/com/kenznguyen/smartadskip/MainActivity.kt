@@ -59,7 +59,15 @@ class MainActivity : ComponentActivity() {
 private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var modelImportStatus by remember { mutableStateOf("Qwen3-VL model not imported") }
+    var modelImportStatus by remember {
+        mutableStateOf(
+            if (File(context.filesDir, "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.MODEL_FILE).isFile) {
+                "Qwen3-VL model package is installed"
+            } else {
+                "Qwen3-VL model not imported"
+            }
+        )
+    }
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
@@ -183,7 +191,7 @@ private fun AccessibilityMonitorScreen() {
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
         Text("Safety: Strict · No ad-surface, CTA, reward, unknown or completed-context clicks", style = MaterialTheme.typography.bodyMedium)
-        Text("Text, content descriptions, input values, screenshots and OCR are not collected.", style = MaterialTheme.typography.bodySmall)
+        Text("Screenshots and bounded clickable-node descriptions are processed locally by Qwen3-VL; no screen data is sent to a network service.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
