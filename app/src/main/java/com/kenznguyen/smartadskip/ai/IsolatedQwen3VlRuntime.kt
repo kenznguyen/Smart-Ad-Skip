@@ -37,11 +37,15 @@ internal class IsolatedQwen3VlRuntime(
     private val lock = Any()
     private val operationMutex = Mutex()
     private val requestIds = AtomicInteger(1)
-    private val pending = java.util.concurrent.ConcurrentHashMap<Int, kotlinx.coroutines.CancellableContinuation<Bundle>>()
+    private data class PendingRequest(val generation: Long, val handshake: Boolean, val continuation: kotlinx.coroutines.CancellableContinuation<Bundle>)
+    private val pending = java.util.concurrent.ConcurrentHashMap<Int, PendingRequest>()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var remote: Messenger? = null
     @Volatile private var remotePid: Int = -1
+    @Volatile private var processSessionId: String? = null
+    @Volatile private var bindingGeneration: Long = 0L
     @Volatile private var ready = false
+    private var connection: ServiceConnection? = null
     private var bound = false
     private var closed = false
     private var recoveryDisabled = false
@@ -53,43 +57,69 @@ internal class IsolatedQwen3VlRuntime(
     private var connectionFuture = CompletableFuture<Messenger>()
 
     private val clientMessenger = Messenger(Handler(Looper.getMainLooper()) { message ->
-        val continuation = pending.remove(message.arg1)
-        val response = message.data
-        remotePid = response.getInt(NativeInferenceProcessService.KEY_PID, remotePid)
-        if (response.getString(NativeInferenceProcessService.KEY_STATUS) == NativeInferenceProcessService.STATUS_OK) {
-            continuation?.takeIf { it.isActive }?.resume(response)
-        } else {
-            val reason = response.getString(NativeInferenceProcessService.KEY_ERROR) ?: "native_process_request_failed"
-            continuation?.takeIf { it.isActive }?.resumeWithException(IllegalStateException(reason))
+        val pendingRequest = pending.remove(message.arg1)
+        if (pendingRequest != null) {
+            val response = message.data
+            val responseGeneration = response.getLong(NativeInferenceProcessService.KEY_GENERATION, -1L)
+            val responsePid = response.getInt(NativeInferenceProcessService.KEY_PID, -1)
+            val responseSession = response.getString(NativeInferenceProcessService.KEY_PROCESS_SESSION)
+            val valid = synchronized(lock) {
+                if (pendingRequest.generation != bindingGeneration || responseGeneration != bindingGeneration) false
+                else if (pendingRequest.handshake) {
+                    val accepted = NativeProcessSessionPolicy.isValidHandshake(
+                        responseGeneration, bindingGeneration, responsePid, Process.myPid()
+                    ) && !responseSession.isNullOrBlank()
+                    if (accepted) {
+                        remotePid = responsePid
+                        processSessionId = responseSession
+                    }
+                    accepted
+                } else {
+                    NativeProcessSessionPolicy.isValidHandshake(
+                        responseGeneration, bindingGeneration, responsePid, Process.myPid()
+                    ) && responsePid == remotePid &&
+                        NativeProcessSessionPolicy.isSameProcess(processSessionId, responseSession)
+                }
+            }
+            val continuation = pendingRequest.continuation
+            if (!valid) continuation.takeIf { it.isActive }?.resumeWithException(
+                IllegalStateException("native_process_stale_or_invalid_response")
+            )
+            else if (response.getString(NativeInferenceProcessService.KEY_STATUS) == NativeInferenceProcessService.STATUS_OK)
+                continuation.takeIf { it.isActive }?.resume(response)
+            else continuation.takeIf { it.isActive }?.resumeWithException(
+                IllegalStateException(response.getString(NativeInferenceProcessService.KEY_ERROR) ?: "native_process_request_failed")
+            )
         }
         true
     })
 
-    private val connection = object : ServiceConnection {
+    private fun createConnection(generation: Long): ServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: android.os.IBinder?) {
-            val connected = Messenger(binder ?: return)
-            synchronized(lock) {
-                remote = connected
-                ready = false
-                if (!connectionFuture.isDone) connectionFuture.complete(connected)
+            if (binder == null) {
+                handleRemoteLoss("native_process_null_binder", generation, true, false)
+                return
             }
-            AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_CONNECTED")
+            val connected = Messenger(binder)
+            val accepted = synchronized(lock) {
+                if (closed || generation != bindingGeneration) false
+                else {
+                    remote = connected
+                    remotePid = -1
+                    processSessionId = null
+                    ready = false
+                    if (!connectionFuture.isDone) connectionFuture.complete(connected)
+                    true
+                }
+            }
+            if (accepted) AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_CONNECTED")
         }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            // A crashed remote service remains bound; Android may reconnect this binding.
-            handleRemoteLoss("native_process_disconnected", unbind = false, allowRecovery = true)
-        }
-
-        override fun onBindingDied(name: ComponentName?) {
-            // Android requires an explicit unbind before this ServiceConnection can bind again.
-            handleRemoteLoss("native_process_binding_died", unbind = true, allowRecovery = true)
-        }
-
-        override fun onNullBinding(name: ComponentName?) {
-            // A null binder is a service contract/configuration failure, not a process crash.
-            handleRemoteLoss("native_process_null_binding", unbind = true, allowRecovery = false)
-        }
+        override fun onServiceDisconnected(name: ComponentName?) =
+            handleRemoteLoss("native_process_disconnected", generation, false, true)
+        override fun onBindingDied(name: ComponentName?) =
+            handleRemoteLoss("native_process_binding_died", generation, true, true)
+        override fun onNullBinding(name: ComponentName?) =
+            handleRemoteLoss("native_process_null_binding", generation, true, false)
     }
 
     /**
