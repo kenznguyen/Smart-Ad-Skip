@@ -202,7 +202,7 @@ internal class IsolatedQwen3VlRuntime(
     private suspend fun ensureBound() {
         check(!closed) { "native_process_proxy_closed" }
         check(!recoveryDisabled) { "native_process_recovery_budget_exhausted" }
-        synchronized(lock) {
+        val alreadyConnected = synchronized(lock) {
             if (!bound) {
                 val intent = Intent(appContext, NativeInferenceProcessService::class.java)
                 check(appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
@@ -210,12 +210,10 @@ internal class IsolatedQwen3VlRuntime(
                 }
                 bound = true
             }
-            if (remote != null) return
+            remote != null
         }
-        connectionFuture.awaitResult()
-        if (remotePid <= 0) {
-            request(NativeInferenceProcessService.MSG_HELLO, Bundle())
-        }
+        if (!alreadyConnected) connectionFuture.awaitResult()
+        if (remotePid <= 0) request(NativeInferenceProcessService.MSG_HELLO, Bundle())
     }
 
     private suspend fun request(
