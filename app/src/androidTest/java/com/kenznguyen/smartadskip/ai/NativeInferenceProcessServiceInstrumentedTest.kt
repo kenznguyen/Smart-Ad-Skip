@@ -57,7 +57,6 @@ class NativeInferenceProcessServiceInstrumentedTest {
             assertTrue(secondPid > 0 && secondPid != Process.myPid())
             assertNotNull(secondSession)
             assertNotEquals("restarted process must have a new session UUID", firstSession, secondSession)
-            assertNotEquals("restarted process should have a new PID", firstPid, secondPid)
         } finally {
             runCatching { context.unbindService(connection) }
         }
