@@ -119,7 +119,7 @@ private fun AccessibilityMonitorScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2.11 · Scrollable Dashboard + Floating Overlay", style = MaterialTheme.typography.titleMedium)
+        Text("P2.17 · Dual-Path AI + Strict Safety", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
         Button(onClick = { modelPicker.launch(arrayOf("application/zip", "application/octet-stream")) }) {
             Text("Import Qwen3-VL model ZIP")
@@ -130,6 +130,9 @@ private fun AccessibilityMonitorScreen() {
         val modelFilesPresent = File(
             context.filesDir,
             "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.MODEL_FILE
+        ).isFile && File(
+            context.filesDir,
+            "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.PROJECTOR_FILE
         ).isFile
         val runtimeLabel = when (aiRuntimeStatus.phase) {
             QwenRuntimePhase.NOT_IMPORTED -> if (modelFilesPresent) {
@@ -138,6 +141,7 @@ private fun AccessibilityMonitorScreen() {
             QwenRuntimePhase.LOADING -> "LOADING"
             QwenRuntimePhase.READY -> "READY"
             QwenRuntimePhase.FAILED -> "FAILED"
+            QwenRuntimePhase.STOPPED -> "STOPPED"
         }
         Text("Qwen3-VL runtime: ${runtimeLabel}", style = MaterialTheme.typography.bodyLarge)
         Text("Runtime detail: ${aiRuntimeStatus.detail}", style = MaterialTheme.typography.bodySmall)
@@ -149,10 +153,13 @@ private fun AccessibilityMonitorScreen() {
             "Image edge: ${aiRuntimeStatus.config.maxImageEdge}px · timeout ${aiRuntimeStatus.config.inferenceTimeoutMillis}ms · confidence ≥ 0.85 · frame age ≤ 1500ms",
             style = MaterialTheme.typography.bodySmall
         )
+        val lastDecisionAt = if (aiRuntimeStatus.lastObservedAtEpochMillis > 0L) {
+            EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(aiRuntimeStatus.lastObservedAtEpochMillis))
+        } else "—"
         Text("Latest model decision: ${aiRuntimeStatus.lastAction}", style = MaterialTheme.typography.bodyMedium)
         Text("Decision reason: ${aiRuntimeStatus.lastReason}", style = MaterialTheme.typography.bodySmall)
         Text(
-            "Frame ID: ${if (aiRuntimeStatus.lastFrameId > 0L) aiRuntimeStatus.lastFrameId.toString() else "—"} · decisions ${aiRuntimeStatus.inferenceCount} · WAIT ${aiRuntimeStatus.waitCount} · action suggestions ${aiRuntimeStatus.actionCount}",
+            "Frame ID: ${if (aiRuntimeStatus.lastFrameId > 0L) aiRuntimeStatus.lastFrameId.toString() else "—"} · at $lastDecisionAt · decisions ${aiRuntimeStatus.inferenceCount} · WAIT ${aiRuntimeStatus.waitCount} · action suggestions ${aiRuntimeStatus.actionCount}",
             style = MaterialTheme.typography.bodySmall
         )
         Text(
