@@ -41,6 +41,32 @@ class AccessibilitySnapshotPolicyTest {
     }
 
     @Test
+    fun create_preservesActivityCandidateOnlyForWindowStateEvents() {
+        val windowState = policy.create(
+            packageName = "com.example.game",
+            eventType = 32,
+            windowClassName = "android.widget.FrameLayout",
+            activityClassName = "com.example.game.GameActivity",
+            isWindowStateChanged = true,
+            nodeCount = 4,
+            clickableNodeCount = 1
+        )
+        val contentChange = policy.create(
+            packageName = "com.example.game",
+            eventType = 2048,
+            windowClassName = "android.widget.FrameLayout",
+            activityClassName = "android.widget.FrameLayout",
+            isWindowStateChanged = false,
+            nodeCount = 4,
+            clickableNodeCount = 1
+        )
+
+        assertEquals("com.example.game.GameActivity", windowState.activityClassName)
+        assertNull(contentChange.activityClassName)
+        assertEquals("android.widget.FrameLayout", contentChange.windowClassName)
+    }
+
+    @Test
     fun create_dropsBlankPackageAndWindowClassNames() {
         val snapshot = policy.create(
             packageName = "  ",
@@ -139,6 +165,8 @@ class AccessibilitySnapshotPolicyTest {
             packageName = "com.example.game",
             eventType = 1,
             windowClassName = "android.widget.EditText",
+            activityClassName = "com.example.game.GameActivity",
+            isWindowStateChanged = true,
             nodeCount = 2,
             clickableNodeCount = 1
         )
@@ -148,7 +176,7 @@ class AccessibilitySnapshotPolicyTest {
             .toSet()
 
         assertTrue(fieldNames.containsAll(
-            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount", "observedAtEpochMillis", "structuralNodes")
+            setOf("packageName", "eventType", "windowClassName", "activityClassName", "nodeCount", "clickableNodeCount", "observedAtEpochMillis", "structuralNodes")
         ))
         assertFalse(fieldNames.any {
             it.contains("text", ignoreCase = true) ||

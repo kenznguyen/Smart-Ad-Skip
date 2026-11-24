@@ -14,6 +14,7 @@ class AccessibilityNodeMatcher {
         ) return null
 
         val detectedLabels = labels(detected)
+        if (detectedLabels.isEmpty()) return null
         val candidates = liveNodes.mapIndexedNotNull { index, live ->
             if (!live.clickable || !live.enabled || !live.visible || !live.bounds.hasArea) {
                 return@mapIndexedNotNull null
@@ -21,11 +22,7 @@ class AccessibilityNodeMatcher {
             if (live.viewClassName != detected.viewClassName) return@mapIndexedNotNull null
 
             val liveLabels = labels(live)
-            val identityMatches = if (detectedLabels.isNotEmpty()) {
-                liveLabels.isNotEmpty() && detectedLabels.any { it in liveLabels }
-            } else {
-                liveLabels.isEmpty()
-            }
+            val identityMatches = liveLabels.isNotEmpty() && detectedLabels == liveLabels
             if (identityMatches) index to centerDistance(detected.bounds, live.bounds) else null
         }.sortedBy { it.second }
 

@@ -23,7 +23,7 @@ class AccessibilityNodeMatcherTest {
     }
 
     @Test
-    fun usesNearestStructuralMatchForSymbolOnlyNodeWhenBoundsShift() {
+    fun rejectsUnlabelledSymbolOnlyNodeEvenWhenBoundsMatch() {
         val detected = node(
             className = "android.widget.ImageButton",
             text = null,
@@ -35,11 +35,11 @@ class AccessibilityNodeMatcherTest {
             node("android.widget.ImageButton", null, ScreenBounds(100, 500, 200, 600), 1)
         )
 
-        assertEquals(0, matcher.findUniqueMatch(detected, live))
+        assertNull(matcher.findUniqueMatch(detected, live))
     }
 
     @Test
-    fun toleratesAccessibilityChildTreeChangesForUnlabelledControl() {
+    fun rejectsAccessibilityChildTreeChangesForUnlabelledControl() {
         val detected = node(
             "android.widget.ImageButton",
             null,
@@ -50,7 +50,19 @@ class AccessibilityNodeMatcherTest {
             node("android.widget.ImageButton", null, ScreenBounds(760, 120, 880, 220), childCount = 2)
         )
 
-        assertEquals(0, matcher.findUniqueMatch(detected, live))
+        assertNull(matcher.findUniqueMatch(detected, live))
+    }
+
+    @Test
+    fun rejectsLiveNodeWithAdditionalProtectedLabelEvenIfOneLabelMatches() {
+        val detected = node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200))
+        val live = listOf(
+            node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200)).copy(
+                contentDescription = "Install"
+            )
+        )
+
+        assertNull(matcher.findUniqueMatch(detected, live))
     }
 
     @Test
@@ -65,7 +77,7 @@ class AccessibilityNodeMatcherTest {
     }
 
     @Test
-    fun rejectsDifferentSemanticNodeEvenWhenBoundsAreIdentical() {
+    fun rejectsNodeWhoseLabelChangesBeforeClickEvenWhenBoundsAreIdentical() {
         val detected = node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200))
         val live = listOf(node("android.widget.Button", "Install", ScreenBounds(400, 100, 500, 200)))
 
