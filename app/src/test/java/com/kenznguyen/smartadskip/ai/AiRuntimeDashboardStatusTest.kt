@@ -22,7 +22,8 @@ class AiRuntimeDashboardStatusTest {
 
     @Test fun failuresAndLastDecisionAreReportedWithoutAuthorizingActions() {
         AiRuntimeDashboardStatus.reset()
-        AiRuntimeDashboardStatus.setFailed("native_load_failed")
+        AiRuntimeDashboardStatus.setReady()
+        AiRuntimeDashboardStatus.setFailed("native_inference_failed")
         assertEquals(QwenRuntimePhase.FAILED, AiRuntimeDashboardStatus.state.value.phase)
 
         AiRuntimeDashboardStatus.recordDecision(
