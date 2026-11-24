@@ -13,12 +13,34 @@ import java.io.File
 
 internal object NativeQwen3Vl {
     init { System.loadLibrary("smartadskip_qwen") }
-    external fun load(modelPath: String, projectorPath: String, threads: Int): Boolean
+    external fun load(modelPath: String, projectorPath: String, threads: Int, contextSize: Int, batchSize: Int): Boolean
     external fun infer(pixels: IntArray, width: Int, height: Int, prompt: String): String
     external fun close()
 }
 
-class LlamaCppQwen3VlRuntime : Qwen3VlRuntime, AutoCloseable {
+/**
+ * Runtime tuning is explicit and validated. Defaults are conservative starting values,
+ * not device-specific claims; benchmark on the target phone before increasing them.
+ */
+data class Qwen3VlRuntimeConfig(
+    val cpuThreads: Int = 2,
+    val contextSize: Int = 2048,
+    val batchSize: Int = 256,
+    val maxImageEdge: Int = 960,
+    val inferenceTimeoutMillis: Long = AutonomousAdDecisionEngine.DEFAULT_INFERENCE_TIMEOUT_MILLIS
+) {
+    init {
+        require(cpuThreads in 1..8) { "qwen_cpu_threads_out_of_range" }
+        require(contextSize in 512..8192) { "qwen_context_size_out_of_range" }
+        require(batchSize in 64..1024) { "qwen_batch_size_out_of_range" }
+        require(maxImageEdge in 320..1280) { "qwen_image_edge_out_of_range" }
+        require(inferenceTimeoutMillis in 1_000L..60_000L) { "qwen_timeout_out_of_range" }
+    }
+}
+
+class LlamaCppQwen3VlRuntime(
+    private val config: Qwen3VlRuntimeConfig = Qwen3VlRuntimeConfig()
+) : Qwen3VlRuntime, AutoCloseable {
     @Volatile private var ready = false
     override val isModelReady: Boolean get() = ready
 
@@ -27,7 +49,9 @@ class LlamaCppQwen3VlRuntime : Qwen3VlRuntime, AutoCloseable {
         ready = NativeQwen3Vl.load(
             modelFile.absolutePath,
             projectorFile.absolutePath,
-            Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+            config.cpuThreads,
+            config.contextSize,
+            config.batchSize
         )
         check(ready) { "qwen_native_runtime_load_failed" }
     }
@@ -36,7 +60,7 @@ class LlamaCppQwen3VlRuntime : Qwen3VlRuntime, AutoCloseable {
         check(ready) { "qwen3_vl_not_ready" }
         val decoded = BitmapFactory.decodeByteArray(context.imageJpeg, 0, context.imageJpeg.size)
             ?: throw IllegalArgumentException("screenshot_decode_failed")
-        val scale = minOf(1f, MAX_IMAGE_EDGE.toFloat() / maxOf(decoded.width, decoded.height))
+        val scale = minOf(1f, config.maxImageEdge.toFloat() / maxOf(decoded.width, decoded.height))
         val bitmap = if (scale < 1f) {
             Bitmap.createScaledBitmap(
                 decoded,
@@ -84,7 +108,6 @@ class LlamaCppQwen3VlRuntime : Qwen3VlRuntime, AutoCloseable {
     }
 
     private companion object {
-        const val MAX_IMAGE_EDGE = 1280
         const val MAX_DESCRIPTION_LENGTH = 96
     }
 }
