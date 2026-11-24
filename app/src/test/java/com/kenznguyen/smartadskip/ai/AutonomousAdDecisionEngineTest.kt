@@ -86,6 +86,19 @@ class AutonomousAdDecisionEngineTest {
         assertEquals(AutonomousDecision.Wait("inference_timeout"), decision)
     }
 
+
+    @Test fun busyNativeInferenceIsBackpressureNotRuntimeFailure() = runBlocking {
+        val busyRuntime = object : Qwen3VlRuntime {
+            override val isModelReady = true
+            override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
+                throw NativeInferenceBusyException()
+            }
+        }
+        val decision = AutonomousAdDecisionEngine(busyRuntime, { now }).decide(context())
+        assertEquals(AutonomousDecision.Wait("inference_busy"), decision)
+        assertTrue(busyRuntime.isModelReady)
+    }
+
     @Test fun frameWithoutSharedSnapshotIdentityIsRejected() = runBlocking {
         val decision = AutonomousAdDecisionEngine(FakeRuntime(), { now })
             .decide(context().copy(frameId = 0L))
