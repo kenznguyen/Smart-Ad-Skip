@@ -13,6 +13,7 @@ class AccessibilitySnapshotPolicy {
         packageName: String?,
         eventType: Int,
         activityClassName: CharSequence?,
+        isWindowStateChanged: Boolean,
         nodeCount: Int,
         clickableNodeCount: Int
     ): AccessibilitySnapshot {
@@ -20,7 +21,7 @@ class AccessibilitySnapshotPolicy {
         return AccessibilitySnapshot(
             packageName = packageName?.trim()?.takeIf(String::isNotEmpty),
             eventType = eventType,
-            activityClassName = activityClassName
+            activityClassName = activityClassName.takeIf { isWindowStateChanged }
                 ?.toString()
                 ?.trim()
                 ?.takeIf(String::isNotEmpty),
