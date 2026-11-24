@@ -63,7 +63,7 @@ class LlamaCppQwen3VlRuntime(
 
     override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
         check(isModelReady) { "qwen3_vl_not_ready" }
-        return lifecycle.infer { inferBlocking(context) }.awaitResult()
+        return lifecycle.infer { inferBlocking(context) }.awaitResult { lifecycle.markInferenceCallerTimedOut() }
     }
 
     private fun inferBlocking(context: AdFrameContext): Qwen3VlOutput {
@@ -122,8 +122,9 @@ class LlamaCppQwen3VlRuntime(
     }
 }
 
-private suspend fun <T> CompletableFuture<T>.awaitResult(): T =
+private suspend fun <T> CompletableFuture<T>.awaitResult(onCancelled: () -> Unit = {}): T =
     suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { onCancelled() }
         whenComplete { value, failure ->
             if (continuation.isActive) {
                 if (failure != null) {
