@@ -71,6 +71,7 @@ class AiRuntimeDashboardStatusTest {
         AiRuntimeDashboardStatus.setNativeProcessState("JNI_RUNNING")
         val state = AiRuntimeDashboardStatus.state.value
         assertEquals(1L, state.queueCoalescedCount)
+        assertEquals(1L, state.queueReplacementCount)
         assertEquals(1L, state.queueDispatchedCount)
         assertEquals(1L, state.queueDroppedCount)
         assertEquals("wrong_foreground", state.lastQueueDropReason)
