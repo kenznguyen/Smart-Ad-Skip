@@ -378,33 +378,30 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             return
         }
 
-        val jpeg = ByteArrayOutputStream()
-        if (!runCatching { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, jpeg) }.getOrDefault(false)) {
-            logDeny("ai_decision", "screenshot_encode_failed")
-            bitmap.recycle()
-            screenshotLifecycle.finish(requestId)
-            return
-        }
-        val elements = snapshot.structuralNodes.mapIndexedNotNull { index, node ->
-            if (!node.clickable || !node.enabled || !node.visible || !node.bounds.hasArea) return@mapIndexedNotNull null
-            AdUiElement(
-                id = "node-$index",
-                bounds = node.bounds,
-                description = node.text ?: node.contentDescription,
-                clickable = true
-            )
-        }.take(MAX_AI_ELEMENTS)
-        val frame = AdFrameContext(
-            packageName = snapshot.packageName.orEmpty(),
-            observedAtEpochMillis = snapshot.observedAtEpochMillis,
-            screenWidth = bitmap.width,
-            screenHeight = bitmap.height,
-            imageJpeg = jpeg.toByteArray(),
-            elements = elements
-        )
-
         serviceScope.launch(Dispatchers.Default) {
             try {
+                val jpeg = ByteArrayOutputStream()
+                if (!runCatching { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, jpeg) }.getOrDefault(false)) {
+                    logDeny("ai_decision", "screenshot_encode_failed")
+                    return@launch
+                }
+                val elements = snapshot.structuralNodes.mapIndexedNotNull { index, node ->
+                    if (!node.clickable || !node.enabled || !node.visible || !node.bounds.hasArea) return@mapIndexedNotNull null
+                    AdUiElement(
+                        id = "node-$index",
+                        bounds = node.bounds,
+                        description = node.text ?: node.contentDescription,
+                        clickable = true
+                    )
+                }.take(MAX_AI_ELEMENTS)
+                val frame = AdFrameContext(
+                    packageName = snapshot.packageName.orEmpty(),
+                    observedAtEpochMillis = snapshot.observedAtEpochMillis,
+                    screenWidth = bitmap.width,
+                    screenHeight = bitmap.height,
+                    imageJpeg = jpeg.toByteArray(),
+                    elements = elements
+                )
                 val decision = engine.decide(frame)
                 withContext(Dispatchers.Main.immediate) {
                     if (!screenshotLifecycle.isCurrent(requestId)) {
