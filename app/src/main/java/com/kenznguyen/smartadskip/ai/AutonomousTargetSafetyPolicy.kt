@@ -41,9 +41,9 @@ class AutonomousTargetSafetyPolicy {
             "play now", "learn more", "get started", "get it", "sign up",
             "watch now", "visit site", "open link"
         )
-        val CLOSE_LABELS = setOf("close", "dismiss", "exit")
+        val CLOSE_LABELS = setOf("close", "close ad", "close button", "dismiss", "dismiss button", "exit")
         val CLOSE_SYMBOLS = setOf("x", "×", "✕", "✖")
-        val NEXT_LABELS = setOf("skip", "next", "next ad")
+        val NEXT_LABELS = setOf("skip", "skip ad", "skip button", "next", "next ad", "next ad button")
         val NEXT_SYMBOLS = setOf(">>", "»", "›", "⏭")
     }
 }
