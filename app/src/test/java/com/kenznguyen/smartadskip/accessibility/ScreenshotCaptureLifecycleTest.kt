@@ -89,6 +89,29 @@ class ScreenshotCaptureLifecycleTest {
     }
 
     @Test
+    fun callbackFailureReleasesOnlyThePendingCapture() {
+        val lifecycle = ScreenshotCaptureLifecycle()
+        val request = lifecycle.begin()!!
+
+        assertTrue(lifecycle.failCapture(request))
+        assertFalse(lifecycle.isCurrent(request))
+        assertFalse(lifecycle.failCapture(request))
+        assertNotNull(lifecycle.begin())
+    }
+
+    @Test
+    fun lateFailureCannotReleaseANewerRequest() {
+        val lifecycle = ScreenshotCaptureLifecycle()
+        val oldRequest = lifecycle.begin()!!
+
+        assertTrue(lifecycle.timeoutCapture(oldRequest))
+        val newRequest = lifecycle.begin()!!
+
+        assertFalse(lifecycle.failCapture(oldRequest))
+        assertTrue(lifecycle.isCurrent(newRequest))
+    }
+
+    @Test
     fun timeoutFromOldGenerationCannotReleaseNewRequest() {
         val lifecycle = ScreenshotCaptureLifecycle()
         val oldRequest = lifecycle.begin()!!
