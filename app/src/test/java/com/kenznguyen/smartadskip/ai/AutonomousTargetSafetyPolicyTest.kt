@@ -35,6 +35,8 @@ class AutonomousTargetSafetyPolicyTest {
         assertTrue(policy.canExecute(target(description = "Close"), AdAction.CLOSE))
         assertTrue(policy.canExecute(target(text = ">>"), AdAction.NEXT_AD))
         assertTrue(policy.canExecute(target(text = "✕"), AdAction.CLOSE))
+        assertTrue(policy.canExecute(target(text = "Close ad"), AdAction.CLOSE))
+        assertTrue(policy.canExecute(target(text = "Skip ad"), AdAction.NEXT_AD))
         assertFalse(policy.canExecute(target(text = ">>"), AdAction.CLOSE))
         assertFalse(policy.canExecute(target(text = "✕"), AdAction.NEXT_AD))
     }
