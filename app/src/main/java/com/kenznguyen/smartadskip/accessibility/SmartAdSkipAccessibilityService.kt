@@ -143,10 +143,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         removeOverlay()
         serviceScope.cancel()
-        qwenRuntime?.close()
+        val runtimeToClose = qwenRuntime
         qwenRuntime = null
-        AiRuntimeDashboardStatus.setStopped()
         aiDecisionEngine = null
+        runtimeToClose?.close()
+        AiRuntimeDashboardStatus.setStopped()
         resetMonitoringState()
         super.onDestroy()
     }
@@ -354,22 +355,25 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         aiInitializationStarted = true
         AiRuntimeDashboardStatus.setLoading(aiRuntimeConfig)
         val runtime = LlamaCppQwen3VlRuntime(aiRuntimeConfig)
+        qwenRuntime = runtime
         serviceScope.launch {
-            runCatching { runtime.load(modelFile, projectorFile) }
-                .onSuccess {
-                    qwenRuntime = runtime
-                    AiRuntimeDashboardStatus.setReady()
-                    aiDecisionEngine = AutonomousAdDecisionEngine(
-                        runtime,
-                        inferenceTimeoutMillis = aiRuntimeConfig.inferenceTimeoutMillis
-                    )
-                    Log.i(TAG, "ai_runtime_ready engine=qwen3-vl-2b")
-                }
-                .onFailure {
-                    runtime.close()
-                    AiRuntimeDashboardStatus.setFailed("model_load_failed=${it.javaClass.simpleName}")
-                    logDeny("ai_runtime", "model_load_failed=${it.javaClass.simpleName}")
-                }
+            try {
+                runtime.load(modelFile, projectorFile)
+                if (!kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!.isActive) return@launch
+                AiRuntimeDashboardStatus.setReady()
+                aiDecisionEngine = AutonomousAdDecisionEngine(
+                    runtime,
+                    inferenceTimeoutMillis = aiRuntimeConfig.inferenceTimeoutMillis
+                )
+                Log.i(TAG, "ai_runtime_ready engine=qwen3-vl-2b")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                runtime.close()
+                throw cancelled
+            } catch (error: Exception) {
+                runtime.close()
+                AiRuntimeDashboardStatus.setFailed("model_load_failed=${error.javaClass.simpleName}")
+                logDeny("ai_runtime", "model_load_failed=${error.javaClass.simpleName}")
+            }
         }
     }
 
@@ -477,6 +481,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                     targetNode = targetNode,
                                     action = action,
                                     confidence = decision.confidence,
+                                    aiAction = decision.action,
                                     requestId = requestId
                                 )
                             }
@@ -504,6 +509,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         targetNode: StructuralNodeMetadata,
         action: VisualActionType,
         confidence: Float,
+        aiAction: AdAction,
         requestId: Long
     ) {
         if (!screenshotLifecycle.isCurrent(requestId)) {
@@ -518,7 +524,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             logDeny("ai_authorization", "invalid_model_action_or_confidence")
             return
         }
-        if (!autonomousTargetSafetyPolicy.canExecute(targetNode)) {
+        if (!autonomousTargetSafetyPolicy.canExecute(targetNode, aiAction)) {
             logDeny("ai_authorization", "protected_target_label")
             return
         }
