@@ -32,10 +32,6 @@ import com.kenznguyen.smartadskip.detection.AdState
 import com.kenznguyen.smartadskip.detection.AdStateClassifier
 import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
 import com.kenznguyen.smartadskip.overlay.OverlayVisibilityPolicy
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.Text
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.ArrayDeque
@@ -56,10 +52,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
     private val actionableNodeDetector = ActionableNodeDetector()
     private val actionExecutionPolicy = ActionExecutionPolicy()
-    private val visualActionDetector = VisualActionDetector()
-    private val ocrActionPolicy = OcrActionPolicy()
     private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
-    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private var qwenRuntime: LlamaCppQwen3VlRuntime? = null
     private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
     private var aiInitializationStarted = false
@@ -145,7 +138,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         removeOverlay()
         serviceScope.cancel()
-        runCatching { textRecognizer.close() }
         qwenRuntime?.close()
         qwenRuntime = null
         aiDecisionEngine = null
@@ -500,170 +492,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
      * the candidate action. All candidates still require live Accessibility and final
      * Click Authorization; OCR and pixel classification cannot authorize a click.
      */
-    private fun runOcrFirstCandidateDiscovery(
-        bitmap: Bitmap,
-        snapshot: AccessibilitySnapshot,
-        previous: AccessibilitySnapshot?,
-        requestId: Long
-    ) {
-        val image = runCatching { InputImage.fromBitmap(bitmap, 0) }.getOrNull()
-        if (image == null) {
-            bitmap.recycle()
-            logDeny("ocr", "input_image_creation_failed")
-            screenshotLifecycle.finish(requestId)
-            return
-        }
-
-        val task = runCatching { textRecognizer.process(image) }.getOrElse {
-            logDeny("ocr", "recognizer_start_failed")
-            bitmap.recycle()
-            screenshotLifecycle.finish(requestId)
-            return
-        }
-        task.addOnSuccessListener(mainExecutor) { result ->
-            try {
-                if (!screenshotLifecycle.isCurrent(requestId)) {
-                    logDeny("ocr", "stale_screenshot_callback")
-                    return@addOnSuccessListener
-                }
-                val candidate = findOcrFirstCandidate(snapshot, bitmap, result.textBlocks)
-                if (candidate != null) {
-                    authorizeDetectedAction(
-                        snapshot = snapshot,
-                        previous = previous,
-                        targetNode = candidate.node,
-                        action = candidate.action,
-                        ocrHint = candidate.ocrHint,
-                        requestId = requestId
-                    )
-                } else {
-                    logDeny("candidate", "no_eligible_next_ad_or_close_candidate")
-                }
-            } catch (error: RuntimeException) {
-                logDeny("candidate_pipeline", "runtime_exception=${error.javaClass.simpleName}")
-            } finally {
-                bitmap.recycle()
-                screenshotLifecycle.finish(requestId)
-            }
-        }.addOnFailureListener(mainExecutor) {
-            // OCR failure is fail-closed; no visual-only fallback is attempted.
-            logDeny("ocr", "recognition_failed")
-            bitmap.recycle()
-            screenshotLifecycle.finish(requestId)
-        }
-    }
-
-    private data class DetectedActionCandidate(
-        val node: StructuralNodeMetadata,
-        val action: VisualActionType,
-        val ocrHint: OcrActionHint
-    )
-
-    /**
-     * OCR labels directly identify NEXT_AD/CLOSE candidates. Visual classification is
-     * consulted only for NO_TEXT regions to discover symbol-only >> / X controls.
-     * It is not a mandatory verification gate for OCR-recognized candidates.
-     */
-    private fun findOcrFirstCandidate(
-        snapshot: AccessibilitySnapshot,
-        bitmap: Bitmap,
-        textBlocks: List<Text.TextBlock>
-    ): DetectedActionCandidate? {
-        val candidates = snapshot.structuralNodes
-            .asSequence()
-            .filter { it.clickable && it.enabled && it.visible && it.bounds.hasArea }
-            .take(MAX_NODES_PER_EVENT)
-
-        val eligible = candidates.mapNotNull { candidate ->
-            val left = candidate.bounds.left.coerceIn(0, bitmap.width)
-            val top = candidate.bounds.top.coerceIn(0, bitmap.height)
-            val right = candidate.bounds.right.coerceIn(0, bitmap.width)
-            val bottom = candidate.bounds.bottom.coerceIn(0, bitmap.height)
-            if (right <= left || bottom <= top) {
-                logDeny("candidate", "invalid_candidate_bounds")
-                return@mapNotNull null
-            }
-
-            val target = Rect(left, top, right, bottom)
-            val recognizedText = textBlocks
-                .filter { block ->
-                    val box = block.boundingBox
-                    box != null && Rect.intersects(target, box)
-                }
-                .joinToString(" ") { it.text }
-            val hint = ocrActionPolicy.analyze(recognizedText)
-
-            if (hint == OcrActionHint.PROTECTED) {
-                logDeny("ocr_policy", "protected_label_detected")
-                return@mapNotNull null
-            }
-            if (hint == OcrActionHint.AMBIGUOUS) {
-                logDeny("ocr_policy", "ambiguous_label_detected")
-                return@mapNotNull null
-            }
-
-            val symbolDiscovery = if (hint == OcrActionHint.NO_TEXT) {
-                val crop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
-                try {
-                    val pixels = IntArray(crop.width * crop.height)
-                    crop.getPixels(pixels, 0, crop.width, 0, 0, crop.width, crop.height)
-                    visualActionDetector.detect(VisualFrame(crop.width, crop.height, pixels)).type
-                } finally {
-                    crop.recycle()
-                }
-            } else {
-                VisualActionType.UNKNOWN
-            }
-
-            val action = ocrActionPolicy.resolveCandidate(recognizedText, symbolDiscovery)
-            if (action == null) {
-                if (hint == OcrActionHint.NO_TEXT) {
-                    logDeny("symbol_discovery", "no_supported_symbol_found")
-                }
-                return@mapNotNull null
-            }
-
-            DetectedActionCandidate(
-                node = candidate,
-                action = action,
-                ocrHint = hint
-            )
-        }.toList()
-
-        if (eligible.size > 1) {
-            logDeny("candidate", "multiple_eligible_controls_count=${eligible.size}")
-            return null
-        }
-        return eligible.singleOrNull()
-    }
-
-    private fun authorizeDetectedAction(
-        snapshot: AccessibilitySnapshot,
-        previous: AccessibilitySnapshot?,
-        targetNode: StructuralNodeMetadata,
-        action: VisualActionType,
-        ocrHint: OcrActionHint,
-        requestId: Long
-    ) {
-        if (!screenshotLifecycle.isCurrent(requestId)) {
-            logDeny("authorization", "stale_screenshot_request")
-            return
-        }
-        if (action !in APPROVED_ACTIONS) {
-            logDeny("authorization", "action_not_approved")
-            return
-        }
-        Log.i(TAG, "candidate_detected action=$action source=$ocrHint")
-        val detectedState = adStateClassifier.classify(
-            snapshot,
-            System.currentTimeMillis(),
-            previous,
-            hasDetectedAction = true
-        )
-        AdDetectionRepository.publish(detectedState)
-        attemptAuthorizedLiveClick(snapshot, targetNode, action, detectedState)
-    }
-
     private fun attemptAuthorizedLiveClick(
         snapshot: AccessibilitySnapshot,
         targetNode: StructuralNodeMetadata,
