@@ -1,5 +1,6 @@
 package com.kenznguyen.smartadskip.ai
 
+import java.io.DataInputStream
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
@@ -90,7 +91,7 @@ class ModelPackageImporter(private val modelsRoot: File) {
         require(properties.getProperty("$prefix.file") == expectedName) { "invalid_manifest_filename" }
         val expectedSize = properties.getProperty("$prefix.size")?.toLongOrNull()
             ?: throw IllegalArgumentException("invalid_manifest_size")
-        require(expectedSize in 4L..maximumBytes) { "invalid_manifest_size" }
+        require(expectedSize in 8L..maximumBytes) { "invalid_manifest_size" }
         val file = directory.resolve(expectedName)
         require(file.isFile && file.length() == expectedSize) { "model_size_mismatch" }
         val expectedHash = properties.getProperty("$prefix.sha256").orEmpty().lowercase()
@@ -99,11 +100,16 @@ class ModelPackageImporter(private val modelsRoot: File) {
     }
 
     private fun validateGguf(file: File) {
-        val magic = ByteArray(4)
-        file.inputStream().use { input ->
-            require(input.read(magic) == magic.size) { "invalid_gguf_header" }
+        val header = ByteArray(8)
+        DataInputStream(file.inputStream().buffered()).use { input ->
+            input.readFully(header)
         }
-        require(magic.contentEquals(GGUF_MAGIC)) { "invalid_gguf_header" }
+        require(header.copyOfRange(0, 4).contentEquals(GGUF_MAGIC)) { "invalid_gguf_header" }
+        val version = (header[4].toInt() and 0xff) or
+            ((header[5].toInt() and 0xff) shl 8) or
+            ((header[6].toInt() and 0xff) shl 16) or
+            ((header[7].toInt() and 0xff) shl 24)
+        require(version in MIN_GGUF_VERSION..MAX_GGUF_VERSION) { "unsupported_gguf_version" }
     }
 
     private fun sha256(file: File): String {
@@ -138,5 +144,7 @@ class ModelPackageImporter(private val modelsRoot: File) {
         private val ALLOWED_ENTRIES = setOf(MANIFEST_FILE, MODEL_FILE, PROJECTOR_FILE)
         private val SHA256_PATTERN = Regex("[0-9a-f]{64}")
         private val GGUF_MAGIC = byteArrayOf(0x47, 0x47, 0x55, 0x46)
+        private const val MIN_GGUF_VERSION = 2
+        private const val MAX_GGUF_VERSION = 3
     }
 }
