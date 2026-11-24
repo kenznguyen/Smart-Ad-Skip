@@ -23,7 +23,7 @@ class AutonomousTargetSafetyPolicy {
     private companion object {
         val PROTECTED_TOKENS = setOf(
             "install", "download", "buy", "purchase", "claim", "collect",
-            "reward", "shop", "sponsored", "subscribe", "signup"
+            "reward", "shop", "sponsored", "subscribe", "signup", "continue", "open", "visit"
         )
         val PROTECTED_PHRASES = listOf(
             "play now", "learn more", "get started", "get it", "sign up",
