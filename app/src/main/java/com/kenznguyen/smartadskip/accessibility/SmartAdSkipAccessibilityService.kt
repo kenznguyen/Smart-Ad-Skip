@@ -64,6 +64,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var aiInitializationStarted = false
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val screenshotCaptureThrottle = ScreenshotCaptureThrottle()
+    private var screenshotCaptureTimeout: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
     private var previousSnapshot: AccessibilitySnapshot? = null
@@ -265,6 +266,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         previousSnapshot = null
         lastActionableUiState = null
         attemptedControlKeys.clear()
+        screenshotCaptureTimeout?.let(mainHandler::removeCallbacks)
+        screenshotCaptureTimeout = null
         screenshotLifecycle.reset()
         screenshotCaptureThrottle.reset()
         temporalPatternAnalyzer.reset()
@@ -306,6 +309,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             return
         }
 
+        val captureTimeout = Runnable {
+            if (screenshotLifecycle.timeoutCapture(requestId)) {
+                screenshotCaptureTimeout = null
+                logDeny("screenshot", "capture_timeout request_id=$requestId")
+            }
+        }
+        screenshotCaptureTimeout = captureTimeout
+        mainHandler.postDelayed(captureTimeout, SCREENSHOT_CAPTURE_TIMEOUT_MILLIS)
+
         ScreenshotRequestGuard.execute(
             request = {
                 takeScreenshot(
@@ -313,6 +325,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     mainExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(result: ScreenshotResult) {
+                            mainHandler.removeCallbacks(captureTimeout)
+                            if (screenshotCaptureTimeout === captureTimeout) {
+                                screenshotCaptureTimeout = null
+                            }
+                            if (!screenshotLifecycle.completeCapture(requestId)) {
+                                runCatching { result.hardwareBuffer.close() }
+                                logDeny("screenshot", "late_capture_success request_id=$requestId")
+                                return
+                            }
+
                             var ownershipTransferredToAi = false
                             val bitmap = try {
                                 copyScreenshot(result)
@@ -345,13 +367,24 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         }
 
                         override fun onFailure(errorCode: Int) {
-                            logDeny("screenshot", "capture_failed_code=$errorCode")
-                            screenshotLifecycle.finish(requestId)
+                            mainHandler.removeCallbacks(captureTimeout)
+                            if (screenshotCaptureTimeout === captureTimeout) {
+                                screenshotCaptureTimeout = null
+                            }
+                            if (screenshotLifecycle.failCapture(requestId)) {
+                                logDeny("screenshot", "capture_failed_code=$errorCode")
+                            } else {
+                                logDeny("screenshot", "late_capture_failure request_id=$requestId")
+                            }
                         }
                     }
                 )
             },
             onFailure = { error ->
+                mainHandler.removeCallbacks(captureTimeout)
+                if (screenshotCaptureTimeout === captureTimeout) {
+                    screenshotCaptureTimeout = null
+                }
                 screenshotCaptureThrottle.release(captureRequestAtMillis)
                 val errorMessage = error.message
                     ?.replace(Regex("\\s+"), " ")
@@ -759,6 +792,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         const val TAG = "SmartAdSkip"
         const val MAX_NODES_PER_EVENT = 200
         const val MAX_AI_ELEMENTS = 64
+        const val SCREENSHOT_CAPTURE_TIMEOUT_MILLIS = 5_000L
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
     }
