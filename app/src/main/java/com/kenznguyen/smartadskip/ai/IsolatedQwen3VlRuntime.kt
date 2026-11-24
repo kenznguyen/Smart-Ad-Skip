@@ -76,53 +76,79 @@ internal class IsolatedQwen3VlRuntime(
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            if (closed) {
-                synchronized(lock) {
-                    remote = null
-                    ready = false
-                    connectionFuture = CompletableFuture()
+            // A crashed remote service remains bound; Android may reconnect this binding.
+            handleRemoteLoss("native_process_disconnected", unbind = false, allowRecovery = true)
+        }
+
+        override fun onBindingDied(name: ComponentName?) {
+            // Android requires an explicit unbind before this ServiceConnection can bind again.
+            handleRemoteLoss("native_process_binding_died", unbind = true, allowRecovery = true)
+        }
+
+        override fun onNullBinding(name: ComponentName?) {
+            // A null binder is a service contract/configuration failure, not a process crash.
+            handleRemoteLoss("native_process_null_binding", unbind = true, allowRecovery = false)
+        }
+    }
+
+    /**
+     * Invalidates every artifact tied to the lost Binder endpoint. A binding-death callback
+     * must unbind before the same ServiceConnection can be used again; an ordinary process
+     * disconnect deliberately keeps the binding so Android can reconnect it automatically.
+     */
+    private fun handleRemoteLoss(reason: String, unbind: Boolean, allowRecovery: Boolean) {
+        if (closed) {
+            synchronized(lock) {
+                remote = null
+                remotePid = -1
+                ready = false
+                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
+                if (unbind && bound) {
+                    runCatching { appContext.unbindService(connection) }
+                    bound = false
                 }
-                failPending("native_process_proxy_closed")
-                return
             }
-            val now = SystemClock.elapsedRealtime()
-            val action = NativeProcessRecoveryPolicy.evaluate(
+            failPending("native_process_proxy_closed")
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val action = if (allowRecovery) {
+            NativeProcessRecoveryPolicy.evaluate(
                 processAlive = false,
                 inferenceAgeMillis = 0L,
                 restartCount = restartCount,
                 nowMillis = now,
                 lastRestartAtMillis = lastRestartAtMillis
             )
-            synchronized(lock) {
-                remote = null
-                remotePid = -1
-                ready = false
-                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
-                if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) {
-                    restartCount += 1
-                    lastRestartAtMillis = now
-                } else if (action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED) {
-                    recoveryDisabled = true
-                    if (bound) {
-                        runCatching { appContext.unbindService(this) }
-                        bound = false
-                    }
+        } else NativeProcessRecoveryPolicy.Action.FAIL_CLOSED
+
+        synchronized(lock) {
+            remote = null
+            remotePid = -1
+            ready = false
+            if (connectionFuture.isDone) connectionFuture = CompletableFuture()
+            if (unbind && bound) {
+                runCatching { appContext.unbindService(connection) }
+                bound = false
+            }
+            if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) {
+                restartCount += 1
+                lastRestartAtMillis = now
+            } else {
+                recoveryDisabled = true
+                if (bound && action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED) {
+                    runCatching { appContext.unbindService(connection) }
+                    bound = false
                 }
             }
-            failPending("native_process_disconnected")
-            AiRuntimeDashboardStatus.setNativeProcessState(
-                if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) "PROCESS_RESTART_PENDING"
-                else "PROCESS_RECOVERY_LIMIT_REACHED"
-            )
         }
-
-        override fun onBindingDied(name: ComponentName?) {
-            onServiceDisconnected(name)
-        }
-
-        override fun onNullBinding(name: ComponentName?) {
-            onServiceDisconnected(name)
-        }
+        failPending(reason)
+        AiRuntimeDashboardStatus.setNativeProcessState(
+            if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) "PROCESS_REBIND_PENDING"
+            else "PROCESS_RECOVERY_LIMIT_REACHED"
+        )
+        android.util.Log.w("SmartAdSkipQwen", "native_process_binding_lost reason=$reason action=$action unbound=$unbind")
     }
 
     override val isModelReady: Boolean get() = ready && !closed
@@ -240,11 +266,11 @@ internal class IsolatedQwen3VlRuntime(
             })
         } catch (error: RemoteException) {
             pending.remove(id)
-            synchronized(lock) {
-                remote = null
-                ready = false
-                if (connectionFuture.isDone) connectionFuture = CompletableFuture()
-            }
+            handleRemoteLoss(
+                reason = "native_process_send_failed",
+                unbind = true,
+                allowRecovery = true
+            )
             continuation.resumeWithException(error)
         }
     }
@@ -267,6 +293,7 @@ internal class IsolatedQwen3VlRuntime(
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
             synchronized(lock) {
                 remote = null
+                remotePid = -1
                 if (connectionFuture.isDone) connectionFuture = CompletableFuture()
             }
             Process.killProcess(pid)
