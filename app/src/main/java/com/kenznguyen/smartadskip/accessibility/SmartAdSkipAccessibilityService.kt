@@ -66,6 +66,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var serviceGeneration = 0L
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val screenshotCaptureThrottle = ScreenshotCaptureThrottle()
+    private data class AccessibilityEventObservation(
+        val eventType: Int,
+        val className: String?
+    )
+    private val accessibilityEventDebouncer =
+        AccessibilityEventDebouncer<AccessibilityEventObservation>(ACCESSIBILITY_EVENT_DEBOUNCE_MILLIS)
+    private var accessibilityEventDebounceRunnable: Runnable? = null
     private data class PendingFrame(
         val snapshot: AccessibilitySnapshot,
         val previous: AccessibilitySnapshot?,
@@ -122,6 +129,34 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
+        // Never retain the framework-owned AccessibilityEvent beyond this callback.
+        val observation = AccessibilityEventObservation(
+            eventType = event.eventType,
+            className = event.className?.toString()
+        )
+        val isCriticalTransition = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+
+        when (val submission = accessibilityEventDebouncer.submit(observation, isCriticalTransition)) {
+            is AccessibilityEventDebouncer.Submission.Immediate -> {
+                accessibilityEventDebounceRunnable?.let(mainHandler::removeCallbacks)
+                accessibilityEventDebounceRunnable = null
+                processAccessibilityEvent(submission.value)
+            }
+            is AccessibilityEventDebouncer.Submission.Deferred -> {
+                accessibilityEventDebounceRunnable?.let(mainHandler::removeCallbacks)
+                val runnable = Runnable {
+                    accessibilityEventDebounceRunnable = null
+                    val latest = accessibilityEventDebouncer.flush() ?: return@Runnable
+                    processAccessibilityEvent(latest)
+                }
+                accessibilityEventDebounceRunnable = runnable
+                mainHandler.postDelayed(runnable, submission.delayMillis)
+            }
+        }
+    }
+
+    private fun processAccessibilityEvent(observation: AccessibilityEventObservation) {
         // event.packageName identifies the event source, not necessarily the active app.
         // Use the active window root as the foreground-package source of truth.
         val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
@@ -131,13 +166,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val nodes = runCatching { collectStructuralNodes(activeRoot) }
             .getOrDefault(emptyList())
         val now = System.currentTimeMillis()
-        val isWindowStateChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        val isWindowStateChanged = observation.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         val baseSnapshot = snapshotPolicy.create(
             packageName = activePackageName,
-            eventType = event.eventType,
+            eventType = observation.eventType,
             // Retain source-view class for existing structural diagnostics; it is not an Activity.
-            windowClassName = event.className,
-            activityClassName = event.className,
+            windowClassName = observation.className,
+            activityClassName = observation.className,
             isWindowStateChanged = isWindowStateChanged,
             nodeCount = nodes.size,
             clickableNodeCount = nodes.count { it.clickable },
@@ -291,6 +326,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private fun newServiceScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private fun resetMonitoringState() {
+        accessibilityEventDebounceRunnable?.let(mainHandler::removeCallbacks)
+        accessibilityEventDebounceRunnable = null
+        accessibilityEventDebouncer.clear()
         previousSnapshot = null
         lastActionableUiState = null
         attemptedControlKeys.clear()
@@ -874,6 +912,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         const val MAX_NODES_PER_EVENT = 200
         const val MAX_AI_ELEMENTS = 64
         const val SCREENSHOT_CAPTURE_TIMEOUT_MILLIS = 5_000L
+        const val ACCESSIBILITY_EVENT_DEBOUNCE_MILLIS = 120L
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
     }
