@@ -34,6 +34,10 @@ class NativeInferenceProcessService : Service() {
         val response = Bundle().apply { putInt(KEY_PID, Process.myPid()) }
         try {
             when (message.what) {
+                MSG_HELLO -> {
+                    response.putString(KEY_STATUS, STATUS_OK)
+                    response.putString(KEY_NATIVE_STATE, "CONNECTED")
+                }
                 MSG_LOAD -> {
                     runtime?.close()
                     val config = Qwen3VlRuntimeConfig(
@@ -111,6 +115,7 @@ class NativeInferenceProcessService : Service() {
     }
 
     companion object {
+        const val MSG_HELLO = 0
         const val MSG_LOAD = 1
         const val MSG_INFER = 2
         const val MSG_CLOSE = 3
