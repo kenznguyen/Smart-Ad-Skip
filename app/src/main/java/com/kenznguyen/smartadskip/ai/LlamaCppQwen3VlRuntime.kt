@@ -57,8 +57,14 @@ class LlamaCppQwen3VlRuntime : Qwen3VlRuntime, AutoCloseable {
     }
 
     private fun buildPrompt(context: AdFrameContext): String {
-        val elements = context.elements.joinToString(",\n") { element ->
-            """{"id":${JsonPrimitive(element.id)},"bounds":[${element.bounds.left},${element.bounds.top},${element.bounds.right},${element.bounds.bottom}],"clickable":${element.clickable},"description":${JsonPrimitive(element.description?.take(MAX_DESCRIPTION_LENGTH).orEmpty())}}"""
+        val imageScale = minOf(1f, MAX_IMAGE_EDGE.toFloat() / maxOf(context.screenWidth, context.screenHeight))
+        val elements = context.elements.joinToString(",\\n") { element ->
+            val bounds = element.bounds
+            val left = (bounds.left * imageScale).toInt()
+            val top = (bounds.top * imageScale).toInt()
+            val right = (bounds.right * imageScale).toInt()
+            val bottom = (bounds.bottom * imageScale).toInt()
+            """{"id":${JsonPrimitive(element.id)},"bounds":[$left,$top,$right,$bottom],"clickable":${element.clickable},"description":${JsonPrimitive(element.description?.take(MAX_DESCRIPTION_LENGTH).orEmpty())}}"""
         }
         return """
             Inspect this Fruit Blast screen and choose exactly one action for the ad UI.
