@@ -27,6 +27,7 @@ import com.kenznguyen.smartadskip.ai.AutonomousTargetSafetyPolicy
 import com.kenznguyen.smartadskip.ai.AutonomousDecision
 import com.kenznguyen.smartadskip.ai.AutonomousAdDecisionEngine
 import com.kenznguyen.smartadskip.ai.LlamaCppQwen3VlRuntime
+import com.kenznguyen.smartadskip.ai.Qwen3VlRuntimeConfig
 import com.kenznguyen.smartadskip.ai.ModelPackageImporter
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import com.kenznguyen.smartadskip.detection.AdState
@@ -55,6 +56,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val actionExecutionPolicy = ActionExecutionPolicy()
     private val autonomousTargetSafetyPolicy = AutonomousTargetSafetyPolicy()
     private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
+    private val aiRuntimeConfig = Qwen3VlRuntimeConfig()
     private var qwenRuntime: LlamaCppQwen3VlRuntime? = null
     private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
     private var aiInitializationStarted = false
@@ -345,12 +347,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (!modelFile.isFile || !projectorFile.isFile) return
 
         aiInitializationStarted = true
-        val runtime = LlamaCppQwen3VlRuntime()
+        val runtime = LlamaCppQwen3VlRuntime(aiRuntimeConfig)
         serviceScope.launch {
             runCatching { runtime.load(modelFile, projectorFile) }
                 .onSuccess {
                     qwenRuntime = runtime
-                    aiDecisionEngine = AutonomousAdDecisionEngine(runtime)
+                    aiDecisionEngine = AutonomousAdDecisionEngine(
+                        runtime,
+                        inferenceTimeoutMillis = aiRuntimeConfig.inferenceTimeoutMillis
+                    )
                     Log.i(TAG, "ai_runtime_ready engine=qwen3-vl-2b")
                 }
                 .onFailure {
@@ -380,10 +385,32 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
         serviceScope.launch(Dispatchers.Default) {
             try {
+                // The screenshot and Accessibility tree share this immutable request identity
+                // and the event timestamp. Resize before JPEG/JNI to reduce peak memory.
+                val originalWidth = bitmap.width
+                val originalHeight = bitmap.height
+                val scale = minOf(
+                    1f,
+                    aiRuntimeConfig.maxImageEdge.toFloat() / maxOf(originalWidth, originalHeight)
+                )
+                val inferenceBitmap = if (scale < 1f) {
+                    Bitmap.createScaledBitmap(
+                        bitmap,
+                        (originalWidth * scale).toInt().coerceAtLeast(1),
+                        (originalHeight * scale).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else bitmap
                 val jpeg = ByteArrayOutputStream()
-                if (!runCatching { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, jpeg) }.getOrDefault(false)) {
-                    logDeny("ai_decision", "screenshot_encode_failed")
-                    return@launch
+                try {
+                    if (!runCatching {
+                        inferenceBitmap.compress(Bitmap.CompressFormat.JPEG, 82, jpeg)
+                    }.getOrDefault(false)) {
+                        logDeny("ai_decision", "screenshot_encode_failed")
+                        return@launch
+                    }
+                } finally {
+                    if (inferenceBitmap !== bitmap) inferenceBitmap.recycle()
                 }
                 val elements = snapshot.structuralNodes.mapIndexedNotNull { index, node ->
                     if (!node.clickable || !node.enabled || !node.visible || !node.bounds.hasArea) return@mapIndexedNotNull null
@@ -397,10 +424,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 val frame = AdFrameContext(
                     packageName = snapshot.packageName.orEmpty(),
                     observedAtEpochMillis = snapshot.observedAtEpochMillis,
-                    screenWidth = bitmap.width,
-                    screenHeight = bitmap.height,
+                    screenWidth = originalWidth,
+                    screenHeight = originalHeight,
                     imageJpeg = jpeg.toByteArray(),
-                    elements = elements
+                    elements = elements,
+                    frameId = requestId
                 )
                 val decision = engine.decide(frame)
                 withContext(Dispatchers.Main.immediate) {
@@ -474,7 +502,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             hasDetectedAction = true
         )
         AdDetectionRepository.publish(detectedState)
-        attemptAuthorizedLiveClick(snapshot, targetNode, action, detectedState)
+        attemptAuthorizedLiveClick(snapshot, targetNode, action, detectedState, requestId)
     }
 
     /**
@@ -507,7 +535,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         snapshot: AccessibilitySnapshot,
         targetNode: StructuralNodeMetadata,
         action: VisualActionType,
-        adState: AdState
+        adState: AdState,
+        requestId: Long
     ) {
         if (snapshot.packageName != TARGET_PACKAGE) {
             logDeny("package", "wrong_snapshot_package_before_click")
@@ -582,8 +611,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 logDeny("live_accessibility", "no_unique_live_node_match")
                 return
             }
-            if (snapshot.packageName != TARGET_PACKAGE || !isAiFrameFresh(snapshot)) {
-                logDeny("freshness", "snapshot_stale_at_final_click_gate")
+            if (!screenshotLifecycle.isCurrent(requestId) || snapshot.packageName != TARGET_PACKAGE || !isAiFrameFresh(snapshot)) {
+                logDeny("freshness", "frame_invalidated_or_stale_at_final_click_gate")
                 return
             }
             if (!selected.isVisibleToUser || !selected.isEnabled || !selected.isClickable) {
