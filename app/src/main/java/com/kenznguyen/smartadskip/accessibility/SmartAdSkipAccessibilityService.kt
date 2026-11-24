@@ -29,7 +29,7 @@ import com.kenznguyen.smartadskip.ai.AdUiElement
 import com.kenznguyen.smartadskip.ai.AutonomousTargetSafetyPolicy
 import com.kenznguyen.smartadskip.ai.AutonomousDecision
 import com.kenznguyen.smartadskip.ai.AutonomousAdDecisionEngine
-import com.kenznguyen.smartadskip.ai.LlamaCppQwen3VlRuntime
+import com.kenznguyen.smartadskip.ai.IsolatedQwen3VlRuntime
 import com.kenznguyen.smartadskip.ai.Qwen3VlRuntimeConfig
 import com.kenznguyen.smartadskip.ai.ModelPackageImporter
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
@@ -61,7 +61,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val autonomousTargetSafetyPolicy = AutonomousTargetSafetyPolicy()
     private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
     private val aiRuntimeConfig = Qwen3VlRuntimeConfig()
-    private var qwenRuntime: LlamaCppQwen3VlRuntime? = null
+    private var qwenRuntime: IsolatedQwen3VlRuntime? = null
     private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
     private val aiServiceLifecycleGate = AiServiceLifecycleGate()
     private var serviceGeneration = 0L
@@ -595,7 +595,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (!aiServiceLifecycleGate.tryBeginInitialization(generation)) return
 
         AiRuntimeDashboardStatus.setLoading(aiRuntimeConfig)
-        val runtime = LlamaCppQwen3VlRuntime(aiRuntimeConfig)
+        val runtime = IsolatedQwen3VlRuntime(this, aiRuntimeConfig)
         qwenRuntime = runtime
         serviceScope.launch {
             try {
