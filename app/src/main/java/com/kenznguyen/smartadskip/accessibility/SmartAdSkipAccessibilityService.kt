@@ -654,11 +654,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             }
 
             val selectedIndex = accessibilityNodeMatcher.findUniqueMatch(targetNode, liveMetadata)
-            val selected = selectedIndex?.let(liveNodes::get)
-            if (selected == null) {
+            if (selectedIndex == null) {
                 logDeny("live_accessibility", "no_unique_live_node_match")
                 return
             }
+            val selected = liveNodes[selectedIndex]
             if (!screenshotLifecycle.isCurrent(requestId) || snapshot.packageName != TARGET_PACKAGE || !isAiFrameFresh(snapshot)) {
                 logDeny("freshness", "frame_invalidated_or_stale_at_final_click_gate")
                 return
