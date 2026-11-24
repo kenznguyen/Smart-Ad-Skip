@@ -45,11 +45,11 @@ internal class ScreenshotCaptureLifecycle {
     fun isCurrent(requestId: Long): Boolean = activeRequest == requestId
 
     @Synchronized
-    fun finish(requestId: Long) {
-        if (activeRequest == requestId) {
-            activeRequest = null
-            capturePending = false
-        }
+    fun finish(requestId: Long): Boolean {
+        if (activeRequest != requestId) return false
+        activeRequest = null
+        capturePending = false
+        return true
     }
 
     @Synchronized
