@@ -75,6 +75,8 @@ class AutonomousAdDecisionEngine(
         val output = try {
             withTimeoutOrNull(inferenceTimeoutMillis) { runtime.infer(context) }
                 ?: return AutonomousDecision.Wait("inference_timeout")
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: NativeInferenceBusyException) {
             // A previous JNI call may still be running after its caller timed out. This is
             // backpressure, not a native failure; keep the runtime alive and wait for its slot.

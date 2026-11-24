@@ -19,8 +19,25 @@ class AdStateClassifierTest {
     @Test
     fun verifiedVisualActionIsAllowedOnlyInsideKnownAdSdkActivity() {
         val current = snapshot(nodes = listOf(node(null, clickable = true)))
-            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+            .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         assertEquals(AdState.SKIP_AVAILABLE, classifier.classify(current, now, hasDetectedAction = true))
+    }
+
+    @Test
+    fun sourceViewClassCannotEstablishAdContextWithoutActivityIdentity() {
+        val current = snapshot(nodes = listOf(node(null)))
+            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+        assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
+    }
+
+    @Test
+    fun activityIdentityEstablishesAdContextEvenWhenSourceViewIsGeneric() {
+        val current = snapshot(nodes = listOf(node(null)))
+            .copy(
+                windowClassName = "android.view.View",
+                activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity"
+            )
+        assertEquals(AdState.AD_PLAYING, classifier.classify(current, now))
     }
 
     @Test

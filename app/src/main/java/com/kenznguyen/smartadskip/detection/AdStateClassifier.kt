@@ -11,7 +11,8 @@ enum class AdState {
 
 /**
  * Conservative Fruit Blast ad-context classifier.
- * Resource IDs and view labels are deliberately not consulted.
+ * Only Activity identity captured from a window-state event can establish SDK ad context.
+ * Source-view/window class names, resource IDs and labels are never treated as Activity identity.
  */
 class AdStateClassifier(
     private val staleAfterMillis: Long = 15_000L,
@@ -30,7 +31,7 @@ class AdStateClassifier(
         if (!isFresh(current.observedAtEpochMillis, nowEpochMillis)) return AdState.UNKNOWN
         if (current.structuralNodes.isEmpty()) return AdState.UNKNOWN
 
-        if (isKnownAdSdkActivity(current.windowClassName)) {
+        if (isKnownAdSdkActivity(current.activityClassName)) {
             return if (hasDetectedAction) AdState.SKIP_AVAILABLE else AdState.AD_PLAYING
         }
         if (previous != null &&
@@ -39,7 +40,7 @@ class AdStateClassifier(
             previous.observedAtEpochMillis < current.observedAtEpochMillis &&
             isFresh(previous.observedAtEpochMillis, nowEpochMillis) &&
             previous.structuralNodes.isNotEmpty() &&
-            isKnownAdSdkActivity(previous.windowClassName)
+            isKnownAdSdkActivity(previous.activityClassName)
         ) return AdState.AD_COMPLETED
 
         return AdState.UNKNOWN

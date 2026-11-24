@@ -8,9 +8,11 @@ import com.kenznguyen.smartadskip.detection.AdState
  */
 class ActionExecutionPolicy {
     fun canClick(adState: AdState, detectedAction: VisualActionType): Boolean =
-        adState != AdState.UNKNOWN &&
-            adState != AdState.AD_COMPLETED &&
-            detectedAction in APPROVED_ACTIONS
+        when (adState) {
+            AdState.AD_PLAYING, AdState.SKIP_AVAILABLE ->
+                detectedAction in APPROVED_ACTIONS
+            AdState.AD_COMPLETED, AdState.UNKNOWN -> false
+        }
 
     private companion object {
         val APPROVED_ACTIONS = setOf(

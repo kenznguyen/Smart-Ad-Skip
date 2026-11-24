@@ -3,6 +3,8 @@ package com.kenznguyen.smartadskip.ai
 import com.kenznguyen.smartadskip.accessibility.ScreenBounds
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import org.junit.Assert.fail
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -86,6 +88,21 @@ class AutonomousAdDecisionEngineTest {
         assertEquals(AutonomousDecision.Wait("inference_timeout"), decision)
     }
 
+
+    @Test fun coroutineCancellationIsPropagatedInsteadOfConvertedToWait() = runBlocking {
+        val cancelledRuntime = object : Qwen3VlRuntime {
+            override val isModelReady = true
+            override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
+                throw CancellationException("service disconnected")
+            }
+        }
+        try {
+            AutonomousAdDecisionEngine(cancelledRuntime, { now }).decide(context())
+            fail("CancellationException must propagate to the owning coroutine")
+        } catch (_: CancellationException) {
+            // Expected: lifecycle cancellation must remain cancellation.
+        }
+    }
 
     @Test fun busyNativeInferenceIsBackpressureNotRuntimeFailure() = runBlocking {
         val busyRuntime = object : Qwen3VlRuntime {
