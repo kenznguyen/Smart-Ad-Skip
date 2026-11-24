@@ -447,7 +447,7 @@ internal class IsolatedQwen3VlRuntime(
         if (pid <= 0) return null
         return runCatching {
             val stat = File("/proc/$pid/stat").readText()
-            val fields = stat.substring(stat.lastIndexOf(')') + 1).trim().split(Regex("\\\\s+"))
+            val fields = stat.substring(stat.lastIndexOf(')') + 1).trim().split(Regex("\\s+"))
             fields.getOrNull(19)?.toLongOrNull()
         }.getOrNull()
     }
