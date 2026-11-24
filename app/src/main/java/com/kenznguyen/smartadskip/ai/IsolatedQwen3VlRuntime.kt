@@ -127,16 +127,22 @@ internal class IsolatedQwen3VlRuntime(
      * must unbind before the same ServiceConnection can be used again; an ordinary process
      * disconnect deliberately keeps the binding so Android can reconnect it automatically.
      */
-    private fun handleRemoteLoss(reason: String, unbind: Boolean, allowRecovery: Boolean) {
+    private fun handleRemoteLoss(reason: String, generation: Long, unbind: Boolean, allowRecovery: Boolean) {
+        val activeConnection = synchronized(lock) {
+            if (generation != bindingGeneration) return
+            connection
+        }
         if (closed) {
             synchronized(lock) {
                 remote = null
                 remotePid = -1
+                processSessionId = null
                 ready = false
                 if (connectionFuture.isDone) connectionFuture = CompletableFuture()
                 if (unbind && bound) {
-                    runCatching { appContext.unbindService(connection) }
+                    runCatching { activeConnection?.let { appContext.unbindService(it) } }
                     bound = false
+                    connection = null
                 }
             }
             failPending("native_process_proxy_closed")
@@ -157,11 +163,13 @@ internal class IsolatedQwen3VlRuntime(
         synchronized(lock) {
             remote = null
             remotePid = -1
+            processSessionId = null
             ready = false
             if (connectionFuture.isDone) connectionFuture = CompletableFuture()
             if (unbind && bound) {
-                runCatching { appContext.unbindService(connection) }
+                runCatching { activeConnection?.let { appContext.unbindService(it) } }
                 bound = false
+                connection = null
             }
             if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) {
                 restartCount += 1
@@ -169,8 +177,9 @@ internal class IsolatedQwen3VlRuntime(
             } else {
                 recoveryDisabled = true
                 if (bound && action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED) {
-                    runCatching { appContext.unbindService(connection) }
+                    activeConnection?.let { runCatching { appContext.unbindService(it) } }
                     bound = false
+                    connection = null
                 }
             }
         }
@@ -288,6 +297,7 @@ internal class IsolatedQwen3VlRuntime(
             if (connected == null) {
                 handleRemoteLoss(
                     reason = "native_process_connection_timeout",
+                    generation = bindingGeneration,
                     unbind = true,
                     allowRecovery = true
                 )
@@ -307,6 +317,7 @@ internal class IsolatedQwen3VlRuntime(
             if (hello == null) {
                 handleRemoteLoss(
                     reason = "native_process_hello_timeout",
+                    generation = bindingGeneration,
                     unbind = true,
                     allowRecovery = true
                 )
@@ -341,6 +352,7 @@ internal class IsolatedQwen3VlRuntime(
             pending.remove(id)
             handleRemoteLoss(
                 reason = "native_process_send_failed",
+                generation = generation,
                 unbind = true,
                 allowRecovery = true
             )
