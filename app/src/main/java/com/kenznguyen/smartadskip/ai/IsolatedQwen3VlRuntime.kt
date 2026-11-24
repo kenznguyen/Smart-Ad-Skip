@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -191,7 +192,9 @@ internal class IsolatedQwen3VlRuntime(
             putInt(NativeInferenceProcessService.KEY_MAX_EDGE, config.maxImageEdge)
             putLong(NativeInferenceProcessService.KEY_TIMEOUT, config.inferenceTimeoutMillis)
         }
-        request(NativeInferenceProcessService.MSG_LOAD, bundle)
+        withTimeout(config.inferenceTimeoutMillis * 5L) {
+            request(NativeInferenceProcessService.MSG_LOAD, bundle, killProcessOnCancel = true)
+        }
         ready = true
         AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_READY")
     }
