@@ -162,6 +162,35 @@ private fun AccessibilityMonitorScreen() {
             "Frame ID: ${if (aiRuntimeStatus.lastFrameId > 0L) aiRuntimeStatus.lastFrameId.toString() else "—"} · at $lastDecisionAt · decisions ${aiRuntimeStatus.inferenceCount} · WAIT ${aiRuntimeStatus.waitCount} · action suggestions ${aiRuntimeStatus.actionCount}",
             style = MaterialTheme.typography.bodySmall
         )
+        Text("Inference diagnostics", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Inference: ${aiRuntimeStatus.inferenceState.name} · started ${aiRuntimeStatus.inferenceStartedCount} · completed ${aiRuntimeStatus.inferenceCompletedCount} · failed ${aiRuntimeStatus.inferenceFailedCount} · timeout ${aiRuntimeStatus.inferenceTimeoutCount}",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            "Duration: last ${aiRuntimeStatus.lastInferenceDurationMillis} ms · max ${aiRuntimeStatus.maxInferenceDurationMillis} ms · overlapping starts ${aiRuntimeStatus.inferenceOverlapCount}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Frame queue: coalesced ${aiRuntimeStatus.queueCoalescedCount} · dispatched ${aiRuntimeStatus.queueDispatchedCount} · dropped ${aiRuntimeStatus.queueDroppedCount} · last drop ${aiRuntimeStatus.lastQueueDropReason}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Screenshots: requested ${aiRuntimeStatus.screenshotRequestedCount} · succeeded ${aiRuntimeStatus.screenshotSucceededCount} · failed ${aiRuntimeStatus.screenshotFailedCount} · last failure ${aiRuntimeStatus.lastScreenshotFailure}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Native process: ${aiRuntimeStatus.nativeProcessState} · fail-closed ${aiRuntimeStatus.failClosedCount}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Last fail-closed: ${aiRuntimeStatus.lastFailClosedReason}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Diagnostics are observational only; they do not schedule inference or authorize actions.",
+            style = MaterialTheme.typography.bodySmall
+        )
         Text(
             "Model action suggestions are not confirmed clicks. Shared safety checks and live Accessibility-node validation remain mandatory.",
             style = MaterialTheme.typography.bodySmall
