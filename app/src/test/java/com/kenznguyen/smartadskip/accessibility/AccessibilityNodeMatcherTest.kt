@@ -54,6 +54,18 @@ class AccessibilityNodeMatcherTest {
     }
 
     @Test
+    fun rejectsLiveNodeWithAdditionalProtectedLabelEvenIfOneLabelMatches() {
+        val detected = node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200))
+        val live = listOf(
+            node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200)).copy(
+                contentDescription = "Install"
+            )
+        )
+
+        assertNull(matcher.findUniqueMatch(detected, live))
+    }
+
+    @Test
     fun rejectsAmbiguousIdenticalNodesInsteadOfGuessing() {
         val detected = node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200))
         val live = listOf(
