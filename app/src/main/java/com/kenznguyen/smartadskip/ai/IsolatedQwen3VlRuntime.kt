@@ -43,6 +43,7 @@ internal class IsolatedQwen3VlRuntime(
     @Volatile private var remote: Messenger? = null
     @Volatile private var remotePid: Int = -1
     @Volatile private var processSessionId: String? = null
+    @Volatile private var processStartTicks: Long? = null
     @Volatile private var bindingGeneration: Long = 0L
     @Volatile private var ready = false
     private var connection: ServiceConnection? = null
@@ -68,17 +69,19 @@ internal class IsolatedQwen3VlRuntime(
                 else if (pendingRequest.handshake) {
                     val accepted = NativeProcessSessionPolicy.isValidHandshake(
                         responseGeneration, bindingGeneration, responsePid, Process.myPid()
-                    ) && !responseSession.isNullOrBlank()
+                    ) && !responseSession.isNullOrBlank() && readProcessStartTicks(responsePid) != null
                     if (accepted) {
                         remotePid = responsePid
                         processSessionId = responseSession
+                        processStartTicks = readProcessStartTicks(responsePid)
                     }
                     accepted
                 } else {
                     NativeProcessSessionPolicy.isValidHandshake(
                         responseGeneration, bindingGeneration, responsePid, Process.myPid()
                     ) && responsePid == remotePid &&
-                        NativeProcessSessionPolicy.isSameProcess(processSessionId, responseSession)
+                        NativeProcessSessionPolicy.isSameProcess(processSessionId, responseSession) &&
+                        processStartTicks != null && processStartTicks == readProcessStartTicks(responsePid)
                 }
             }
             val continuation = pendingRequest.continuation
@@ -107,6 +110,7 @@ internal class IsolatedQwen3VlRuntime(
                     remote = connected
                     remotePid = -1
                     processSessionId = null
+                    processStartTicks = null
                     ready = false
                     if (!connectionFuture.isDone) connectionFuture.complete(connected)
                     true
@@ -137,6 +141,7 @@ internal class IsolatedQwen3VlRuntime(
                 remote = null
                 remotePid = -1
                 processSessionId = null
+                processStartTicks = null
                 ready = false
                 if (connectionFuture.isDone) connectionFuture = CompletableFuture()
                 if (unbind && bound) {
@@ -164,6 +169,7 @@ internal class IsolatedQwen3VlRuntime(
             remote = null
             remotePid = -1
             processSessionId = null
+            processStartTicks = null
             ready = false
             if (connectionFuture.isDone) connectionFuture = CompletableFuture()
             if (unbind && bound) {
