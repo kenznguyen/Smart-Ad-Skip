@@ -434,6 +434,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 }
                 val elements = snapshot.structuralNodes.mapIndexedNotNull { index, node ->
                     if (!node.clickable || !node.enabled || !node.visible || !node.bounds.hasArea) return@mapIndexedNotNull null
+                    if (node.text.isNullOrBlank() && node.contentDescription.isNullOrBlank()) return@mapIndexedNotNull null
                     AdUiElement(
                         id = "node-$index",
                         bounds = node.bounds,
