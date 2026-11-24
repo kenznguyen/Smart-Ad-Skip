@@ -8,15 +8,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeRuntimeLifecycleTest {
-    @Test fun timeoutRetainsNativeOwnershipUntilJniActuallyReturnsThenRecovers() {
+    @Test fun timeoutRetainsOwnershipUntilLateNativeReturnThenRecovers() {
         val executor = Executors.newSingleThreadExecutor()
         val clock = AtomicLong(1_000_000_000L)
-        val lifecycle = NativeRuntimeLifecycle(executor) { clock.get() }
+        val events = mutableListOf<String>()
+        val lifecycle = NativeRuntimeLifecycle(executor, { clock.get() }, { synchronized(events) { events += it } })
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
-            val first = lifecycle.infer {
+            val first = lifecycle.infer(requestId = 42L) {
                 started.countDown()
                 check(release.await(2, TimeUnit.SECONDS))
                 "first"
@@ -24,45 +25,82 @@ class NativeRuntimeLifecycleTest {
             assertTrue(started.await(2, TimeUnit.SECONDS))
             lifecycle.markInferenceCallerTimedOut()
             assertEquals(NativeRuntimeLifecycle.InferenceState.CALLER_TIMED_OUT, lifecycle.inferenceSnapshot().state)
-            assertTrue(runCatching { lifecycle.infer { "overlap" } }.exceptionOrNull() is NativeInferenceBusyException)
+            assertTrue(runCatching { lifecycle.infer(requestId = 43L) { "overlap" } }.exceptionOrNull() is NativeInferenceBusyException)
             release.countDown()
             assertEquals("first", first.get(2, TimeUnit.SECONDS))
             assertEquals(NativeRuntimeLifecycle.InferenceState.IDLE, lifecycle.inferenceSnapshot().state)
-            assertEquals("recovered", lifecycle.infer { "recovered" }.get(2, TimeUnit.SECONDS))
+            assertEquals("recovered", lifecycle.infer(requestId = 44L) { "recovered" }.get(2, TimeUnit.SECONDS))
+            val log = synchronized(events) { events.joinToString("\n") }
+            assertTrue(log.contains("inference_started request_id=42"))
+            assertTrue(log.contains("inference_caller_timed_out request_id=42"))
+            assertTrue(log.contains("inference_native_returned request_id=42"))
+            assertTrue(log.contains("inference_ownership_released request_id=42"))
+            assertTrue(log.contains("thread_id="))
+            assertTrue(log.contains("native_elapsed_ms="))
         } finally { release.countDown(); executor.shutdownNow() }
     }
 
-    @Test fun agedInferenceIsDiagnosedAsStuckButNeverHasOwnershipStolen() {
+    @Test fun actualNativeDurationTransitionsCallerTimedOutToStuckWithoutStealingOwnership() {
         val executor = Executors.newSingleThreadExecutor()
         val clock = AtomicLong(0L)
-        val lifecycle = NativeRuntimeLifecycle(executor) { clock.get() }
+        val lifecycle = NativeRuntimeLifecycle(executor, { clock.get() })
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
-            lifecycle.infer { started.countDown(); check(release.await(2, TimeUnit.SECONDS)) }
+            lifecycle.infer(requestId = 7L) {
+                started.countDown()
+                check(release.await(2, TimeUnit.SECONDS))
+            }
             assertTrue(started.await(2, TimeUnit.SECONDS))
+            lifecycle.markInferenceCallerTimedOut()
+            clock.set(TimeUnit.SECONDS.toNanos(29))
+            assertEquals(NativeRuntimeLifecycle.InferenceState.CALLER_TIMED_OUT, lifecycle.inferenceSnapshot().state)
             clock.set(TimeUnit.SECONDS.toNanos(31))
             assertEquals(NativeRuntimeLifecycle.InferenceState.STUCK, lifecycle.inferenceSnapshot().state)
-            val busy = runCatching { lifecycle.infer { "overlap" } }.exceptionOrNull()
+            val busy = runCatching { lifecycle.infer(requestId = 8L) { "overlap" } }.exceptionOrNull()
             assertTrue(busy is NativeInferenceBusyException)
             assertTrue((busy as NativeInferenceBusyException).diagnostic.contains("state=stuck"))
         } finally { release.countDown(); executor.shutdownNow() }
     }
 
-    @Test fun concurrentInferenceIsRejectedAndSlotRecoversOnSuccess() {
+    @Test fun nativeCallCanReturnAfterStuckClassificationAndReleaseForRecovery() {
+        val executor = Executors.newSingleThreadExecutor()
+        val clock = AtomicLong(0L)
+        val lifecycle = NativeRuntimeLifecycle(executor, { clock.get() })
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        try {
+            lifecycle.load { }.get(2, TimeUnit.SECONDS)
+            val late = lifecycle.infer(requestId = 9L) {
+                started.countDown()
+                check(release.await(2, TimeUnit.SECONDS))
+                "late"
+            }
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            clock.set(TimeUnit.SECONDS.toNanos(31))
+            assertEquals(NativeRuntimeLifecycle.InferenceState.STUCK, lifecycle.inferenceSnapshot().state)
+            assertTrue(runCatching { lifecycle.infer(requestId = 10L) { "unsafe" } }.exceptionOrNull() is NativeInferenceBusyException)
+            release.countDown()
+            assertEquals("late", late.get(2, TimeUnit.SECONDS))
+            assertEquals(NativeRuntimeLifecycle.InferenceState.IDLE, lifecycle.inferenceSnapshot().state)
+            assertEquals("recovered", lifecycle.infer(requestId = 11L) { "recovered" }.get(2, TimeUnit.SECONDS))
+        } finally { release.countDown(); executor.shutdownNow() }
+    }
+
+    @Test fun duplicateInferenceIsRejectedAndSlotRecoversAfterSuccess() {
         val executor = Executors.newSingleThreadExecutor()
         val lifecycle = NativeRuntimeLifecycle(executor)
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
-            val first = lifecycle.infer { started.countDown(); check(release.await(2, TimeUnit.SECONDS)); "first" }
+            val first = lifecycle.infer(requestId = 1L) { started.countDown(); check(release.await(2, TimeUnit.SECONDS)); "first" }
             assertTrue(started.await(2, TimeUnit.SECONDS))
-            assertTrue(runCatching { lifecycle.infer { "duplicate" } }.exceptionOrNull() is NativeInferenceBusyException)
+            assertTrue(runCatching { lifecycle.infer(requestId = 2L) { "duplicate" } }.exceptionOrNull() is NativeInferenceBusyException)
             release.countDown()
             assertEquals("first", first.get(2, TimeUnit.SECONDS))
-            assertEquals("second", lifecycle.infer { "second" }.get(2, TimeUnit.SECONDS))
+            assertEquals("second", lifecycle.infer(requestId = 3L) { "second" }.get(2, TimeUnit.SECONDS))
         } finally { release.countDown(); executor.shutdownNow() }
     }
 
@@ -71,22 +109,22 @@ class NativeRuntimeLifecycleTest {
         val lifecycle = NativeRuntimeLifecycle(executor)
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
-            assertTrue(runCatching { lifecycle.infer<String> { error("native failure") }.get(2, TimeUnit.SECONDS) }.isFailure)
+            assertTrue(runCatching { lifecycle.infer<String>(requestId = 1L) { error("native failure") }.get(2, TimeUnit.SECONDS) }.isFailure)
             assertEquals(NativeRuntimeLifecycle.InferenceState.IDLE, lifecycle.inferenceSnapshot().state)
-            assertEquals("ok", lifecycle.infer { "ok" }.get(2, TimeUnit.SECONDS))
+            assertEquals("ok", lifecycle.infer(requestId = 2L) { "ok" }.get(2, TimeUnit.SECONDS))
         } finally { executor.shutdownNow() }
     }
 
-    @Test fun inferenceOwnershipIsReleasedAfterCancellationOfNativeTask() {
+    @Test fun inferenceOwnershipIsReleasedAfterNativeCancellationException() {
         val executor = Executors.newSingleThreadExecutor()
         val lifecycle = NativeRuntimeLifecycle(executor)
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
             assertTrue(runCatching {
-                lifecycle.infer<String> { throw java.util.concurrent.CancellationException("cancelled") }.get(2, TimeUnit.SECONDS)
+                lifecycle.infer<String>(requestId = 1L) { throw java.util.concurrent.CancellationException("cancelled") }.get(2, TimeUnit.SECONDS)
             }.isFailure)
             assertEquals(NativeRuntimeLifecycle.InferenceState.IDLE, lifecycle.inferenceSnapshot().state)
-            assertEquals("recovered", lifecycle.infer { "recovered" }.get(2, TimeUnit.SECONDS))
+            assertEquals("recovered", lifecycle.infer(requestId = 2L) { "recovered" }.get(2, TimeUnit.SECONDS))
         } finally { executor.shutdownNow() }
     }
 
@@ -98,7 +136,7 @@ class NativeRuntimeLifecycleTest {
         val closed = CountDownLatch(1)
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
-            val inference = lifecycle.infer { started.countDown(); check(release.await(2, TimeUnit.SECONDS)); "late" }
+            val inference = lifecycle.infer(requestId = 1L) { started.countDown(); check(release.await(2, TimeUnit.SECONDS)); "late" }
             assertTrue(started.await(2, TimeUnit.SECONDS))
             val close = lifecycle.close { closed.countDown() }
             assertFalse(closed.await(50, TimeUnit.MILLISECONDS))
