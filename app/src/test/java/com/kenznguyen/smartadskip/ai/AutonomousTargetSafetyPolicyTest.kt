@@ -22,6 +22,7 @@ class AutonomousTargetSafetyPolicyTest {
         assertFalse(policy.canExecute(target(text = "Claim reward")))
         assertFalse(policy.canExecute(target(description = "Install now")))
         assertFalse(policy.canExecute(target(text = "Learn more")))
+        assertFalse(policy.canExecute(target(text = "Continue")))
     }
 
     @Test fun allowsSymbolOnlyAndSkipCloseTargets() {
