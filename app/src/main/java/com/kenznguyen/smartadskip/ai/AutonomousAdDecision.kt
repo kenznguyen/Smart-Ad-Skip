@@ -1,6 +1,7 @@
 package com.kenznguyen.smartadskip.ai
 
 import com.kenznguyen.smartadskip.accessibility.ScreenBounds
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The model is the sole source of action decisions. The executor only translates a
@@ -21,7 +22,9 @@ data class AdFrameContext(
     val screenWidth: Int,
     val screenHeight: Int,
     val imageJpeg: ByteArray,
-    val elements: List<AdUiElement>
+    val elements: List<AdUiElement>,
+    /** Unique screenshot request that produced both pixels and Accessibility metadata. */
+    val frameId: Long = 1L
 )
 
 data class Qwen3VlOutput(
@@ -55,11 +58,12 @@ interface Qwen3VlRuntime {
 class AutonomousAdDecisionEngine(
     private val runtime: Qwen3VlRuntime,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val minimumConfidence: Float = DEFAULT_MINIMUM_CONFIDENCE
+    private val minimumConfidence: Float = DEFAULT_MINIMUM_CONFIDENCE,
+    private val inferenceTimeoutMillis: Long = DEFAULT_INFERENCE_TIMEOUT_MILLIS
 ) {
     suspend fun decide(context: AdFrameContext): AutonomousDecision {
         if (context.packageName != TARGET_PACKAGE) return AutonomousDecision.Wait("wrong_package")
-        if (context.screenWidth <= 0 || context.screenHeight <= 0 || context.imageJpeg.isEmpty()) {
+        if (context.frameId <= 0L || context.screenWidth <= 0 || context.screenHeight <= 0 || context.imageJpeg.isEmpty()) {
             return AutonomousDecision.Wait("invalid_frame")
         }
         if (context.observedAtEpochMillis <= 0L ||
@@ -67,8 +71,13 @@ class AutonomousAdDecisionEngine(
         ) return AutonomousDecision.Wait("stale_frame")
         if (!runtime.isModelReady) return AutonomousDecision.Wait("qwen3_vl_not_ready")
 
-        val output = runCatching { runtime.infer(context) }
-            .getOrElse { return AutonomousDecision.Wait("inference_failed") }
+        if (inferenceTimeoutMillis <= 0L) return AutonomousDecision.Wait("invalid_inference_timeout")
+        val output = try {
+            withTimeoutOrNull(inferenceTimeoutMillis) { runtime.infer(context) }
+                ?: return AutonomousDecision.Wait("inference_timeout")
+        } catch (_: Exception) {
+            return AutonomousDecision.Wait("inference_failed")
+        }
 
         if (output.action == AdAction.WAIT) return AutonomousDecision.Wait("model_wait")
         if (!output.confidence.isFinite() ||
@@ -97,5 +106,6 @@ class AutonomousAdDecisionEngine(
         const val DEFAULT_MINIMUM_CONFIDENCE = 0.85f
         const val MAX_FRAME_AGE_MILLIS = 1_500L
         const val MAX_RATIONALE_LENGTH = 240
+        const val DEFAULT_INFERENCE_TIMEOUT_MILLIS = 12_000L
     }
 }
