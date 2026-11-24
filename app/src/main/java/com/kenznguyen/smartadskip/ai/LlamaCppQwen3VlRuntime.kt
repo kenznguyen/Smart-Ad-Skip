@@ -4,6 +4,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.RejectedExecutionException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -56,7 +63,26 @@ class LlamaCppQwen3VlRuntime(
         check(ready) { "qwen_native_runtime_load_failed" }
     }
 
-    override suspend fun infer(context: AdFrameContext): Qwen3VlOutput = withContext(Dispatchers.Default) {
+    override suspend fun infer(context: AdFrameContext): Qwen3VlOutput =
+        suspendCancellableCoroutine { continuation ->
+            // A synchronous JNI call cannot be interrupted safely. Run it outside the
+            // caller coroutine so timeout returns immediately; a late result is discarded.
+            // SynchronousQueue rejects overlapping work instead of accumulating stale frames.
+            try {
+                INFERENCE_EXECUTOR.execute {
+                    try {
+                        val result = inferBlocking(context)
+                        if (continuation.isActive) continuation.resume(result)
+                    } catch (error: Throwable) {
+                        if (continuation.isActive) continuation.resumeWithException(error)
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                continuation.resumeWithException(IllegalStateException("qwen_inference_busy"))
+            }
+        }
+
+    private fun inferBlocking(context: AdFrameContext): Qwen3VlOutput {
         check(ready) { "qwen3_vl_not_ready" }
         val decoded = BitmapFactory.decodeByteArray(context.imageJpeg, 0, context.imageJpeg.size)
             ?: throw IllegalArgumentException("screenshot_decode_failed")
@@ -73,7 +99,7 @@ class LlamaCppQwen3VlRuntime(
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
             val raw = NativeQwen3Vl.infer(pixels, bitmap.width, bitmap.height, buildPrompt(context))
-            Qwen3VlOutputParser.parse(raw)
+            return Qwen3VlOutputParser.parse(raw)
         } finally {
             if (bitmap !== decoded) bitmap.recycle()
             decoded.recycle()
@@ -109,6 +135,11 @@ class LlamaCppQwen3VlRuntime(
 
     private companion object {
         const val MAX_DESCRIPTION_LENGTH = 96
+        val INFERENCE_EXECUTOR = ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS, SynchronousQueue()
+        ) { runnable ->
+            Thread(runnable, "qwen3vl-inference").apply { isDaemon = true }
+        }.apply { rejectedExecutionHandler = ThreadPoolExecutor.AbortPolicy() }
     }
 }
 
