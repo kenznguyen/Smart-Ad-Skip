@@ -387,10 +387,11 @@ internal class IsolatedQwen3VlRuntime(
     }
 
     private fun terminateRemoteProcess(reason: String) {
-        val identity = synchronized(lock) { Triple(bindingGeneration, remotePid, processSessionId) }
-        val generation = identity.first
-        val pid = identity.second
-        val sessionId = identity.third
+        val identity = synchronized(lock) { ProcessIdentity(bindingGeneration, remotePid, processSessionId, processStartTicks) }
+        val generation = identity.generation
+        val pid = identity.pid
+        val sessionId = identity.sessionId
+        val startTicks = identity.startTicks
         val now = SystemClock.elapsedRealtime()
         val age = inferenceStartedAtMillis?.let { (now - it).coerceAtLeast(0L) } ?: config.inferenceTimeoutMillis
         val action = NativeProcessRecoveryPolicy.evaluate(
@@ -407,8 +408,9 @@ internal class IsolatedQwen3VlRuntime(
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
             val terminated = synchronized(lock) {
                 if (!NativeProcessSessionPolicy.mayTerminate(
-                        generation, bindingGeneration, pid, remotePid, sessionId, processSessionId
-                    )
+                        generation, bindingGeneration, pid, remotePid, sessionId, processSessionId,
+                        startTicks, processStartTicks
+                    ) && readProcessStartTicks(pid) == startTicks
                 ) {
                     false
                 } else {
@@ -416,6 +418,7 @@ internal class IsolatedQwen3VlRuntime(
                     remote = null
                     remotePid = -1
                     processSessionId = null
+                    processStartTicks = null
                     ready = false
                     if (connectionFuture.isDone) connectionFuture = CompletableFuture()
                     Process.killProcess(pid)
@@ -436,6 +439,17 @@ internal class IsolatedQwen3VlRuntime(
             "SmartAdSkipQwen",
             "native_process_watchdog action=$action reason=$reason pid=$pid native_elapsed_ms=$age restart_count=$restartCount"
         )
+    }
+
+    private data class ProcessIdentity(val generation: Long, val pid: Int, val sessionId: String?, val startTicks: Long?)
+
+    private fun readProcessStartTicks(pid: Int): Long? {
+        if (pid <= 0) return null
+        return runCatching {
+            val stat = File("/proc/$pid/stat").readText()
+            val fields = stat.substring(stat.lastIndexOf(')') + 1).trim().split(Regex("\\\\s+"))
+            fields.getOrNull(19)?.toLongOrNull()
+        }.getOrNull()
     }
 
     private fun failPending(reason: String) {
