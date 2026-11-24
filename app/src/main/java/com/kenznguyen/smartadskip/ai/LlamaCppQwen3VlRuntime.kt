@@ -63,7 +63,8 @@ class LlamaCppQwen3VlRuntime(
 
     override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
         check(isModelReady) { "qwen3_vl_not_ready" }
-        return lifecycle.infer { inferBlocking(context) }.awaitResult { lifecycle.markInferenceCallerTimedOut() }
+        return lifecycle.infer(requestId = context.frameId) { inferBlocking(context) }
+            .awaitResult { lifecycle.markInferenceCallerTimedOut() }
     }
 
     private fun inferBlocking(context: AdFrameContext): Qwen3VlOutput {
