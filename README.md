@@ -1,35 +1,34 @@
 # Smart Ad Skip
 
-Standalone Android proof of concept for Fruit Blast ad-interface automation.
+Android proof of concept for Fruit Blast ad-interface automation using on-device Qwen3-VL.
 
-## Project status
+## P2.17 — Autonomous AI → Accessibility
 
-P2.17 introduces the autonomous AI decision contract for local Qwen3-VL. See
-[docs/P2.17-AUTONOMOUS-AI.md](docs/P2.17-AUTONOMOUS-AI.md) for the implementation
-boundary and native-runtime gate.
+The AI model independently chooses `NEXT_AD`, `CLOSE`, or `WAIT`. OCR no longer selects actions. The local Qwen3-VL runtime receives a screenshot and a bounded list of visible, enabled, clickable Accessibility nodes. A shared execution-integrity layer validates the selected target before Accessibility can click it.
 
-**Important:** this PR does not yet ship the Qwen3-VL native runtime or model importer.
-The existing P2.16 execution path remains active; do not enable autonomous actions until
-the local inference bridge is built and validated on a physical device.
-
-## Technology
-
-- Kotlin, Jetpack Compose, Android Accessibility
-- Android API 26+, compile/target SDK 36
-- JDK 17
+See [docs/P2.17-AUTONOMOUS-AI.md](docs/P2.17-AUTONOMOUS-AI.md) for architecture, model package format, safety checks, and device-validation steps.
 
 ## Build and test
 
+Requirements: JDK 17, Android SDK 36, NDK 27.2.12479018, CMake 3.22.1, and Gradle 8.13.
+
 ```bash
+chmod +x scripts/fetch_llama_cpp.sh
+scripts/fetch_llama_cpp.sh
 gradle :app:testDebugUnitTest
 gradle :app:assembleDebug
 ```
 
+The native build targets `arm64-v8a`. The APK does not bundle model weights. Import a verified Qwen3-VL-2B model ZIP from the dashboard after installation.
+
 ## Safety boundaries
 
 - No ad SDK modification, reward callback spoofing, CAPTCHA bypass, or fabricated rewards.
-- The intended AI decision set is limited to `NEXT_AD`, `CLOSE`, and `WAIT`.
-- No rule-based fallback is allowed when the local model is unavailable.
-- Android Accessibility permission remains required for any device action.
+- The model is the sole action selector; there is no OCR or rule-based action fallback.
+- Model failure, stale context, malformed output, ambiguous target, or failed validation resolves to `WAIT`.
+- Android Accessibility permission is required for device actions.
+- A dismissed ad window is not proof that a reward was granted.
 
-Fruit Blast is the initial test application for controlled feasibility testing.
+## Project status
+
+The local runtime and Accessibility wiring are implemented on the P2.17 feature branch. Native CI and physical Fruit Blast inference still require successful verification; this branch is not yet declared production-ready.
