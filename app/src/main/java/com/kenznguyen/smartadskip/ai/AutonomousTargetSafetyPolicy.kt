@@ -9,8 +9,8 @@ import com.kenznguyen.smartadskip.accessibility.StructuralNodeMetadata
 class AutonomousTargetSafetyPolicy {
     fun canExecute(target: StructuralNodeMetadata, action: AdAction): Boolean {
         val rawLabels = listOfNotNull(target.text, target.contentDescription)
-            .map(String::trim)
-            .filter(String::isNotEmpty)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
         if (rawLabels.isEmpty()) return false
 
         val normalized = rawLabels.joinToString(" ")
