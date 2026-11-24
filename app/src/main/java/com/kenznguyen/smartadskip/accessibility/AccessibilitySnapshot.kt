@@ -3,7 +3,7 @@ package com.kenznguyen.smartadskip.accessibility
 data class AccessibilitySnapshot(
     val packageName: String?,
     val eventType: Int,
-    val windowClassName: String?,
+    val activityClassName: String?,
     val nodeCount: Int,
     val clickableNodeCount: Int
 )
@@ -12,7 +12,7 @@ class AccessibilitySnapshotPolicy {
     fun create(
         packageName: String?,
         eventType: Int,
-        windowClassName: CharSequence?,
+        activityClassName: CharSequence?,
         nodeCount: Int,
         clickableNodeCount: Int
     ): AccessibilitySnapshot {
@@ -20,7 +20,7 @@ class AccessibilitySnapshotPolicy {
         return AccessibilitySnapshot(
             packageName = packageName?.trim()?.takeIf(String::isNotEmpty),
             eventType = eventType,
-            windowClassName = windowClassName
+            activityClassName = activityClassName
                 ?.toString()
                 ?.trim()
                 ?.takeIf(String::isNotEmpty),
