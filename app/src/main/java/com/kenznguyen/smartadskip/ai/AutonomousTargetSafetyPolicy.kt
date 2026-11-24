@@ -17,7 +17,7 @@ class AutonomousTargetSafetyPolicy {
 
         val tokens = normalized.split(Regex("\\s+")).toSet()
         return tokens.none { it in PROTECTED_TOKENS } &&
-            PROTECTED_PHRASES.none(normalized::contains)
+            PROTECTED_PHRASES.none { phrase -> normalized.contains(phrase) }
     }
 
     private companion object {
