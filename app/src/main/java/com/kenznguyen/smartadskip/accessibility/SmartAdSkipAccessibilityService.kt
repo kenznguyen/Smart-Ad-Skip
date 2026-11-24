@@ -66,7 +66,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var serviceGeneration = 0L
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val screenshotCaptureThrottle = ScreenshotCaptureThrottle()
+    private data class PendingFrame(
+        val snapshot: AccessibilitySnapshot,
+        val previous: AccessibilitySnapshot?,
+        val observedAtMillis: Long
+    )
+    private val latestFrameCoalescer = LatestFrameCoalescer<PendingFrame>()
     private var screenshotCaptureTimeout: Runnable? = null
+    private var pendingFrameDrain: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
     private var previousSnapshot: AccessibilitySnapshot? = null
@@ -289,6 +296,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         attemptedControlKeys.clear()
         screenshotCaptureTimeout?.let(mainHandler::removeCallbacks)
         screenshotCaptureTimeout = null
+        pendingFrameDrain?.let(mainHandler::removeCallbacks)
+        pendingFrameDrain = null
+        latestFrameCoalescer.clear()
         screenshotLifecycle.reset()
         screenshotCaptureThrottle.reset()
         temporalPatternAnalyzer.reset()
@@ -318,14 +328,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             return
         }
         val requestId = screenshotLifecycle.begin() ?: run {
-            logDeny("screenshot", "capture_already_in_flight")
+            latestFrameCoalescer.offer(PendingFrame(snapshot, previous, now))
+            Log.d(TAG, "frame_coalesced reason=screenshot_or_inference_busy pending=latest_only")
             return
         }
         // Android rejects takeScreenshot requests made less than 1 second apart.
         // Use monotonic time and reserve the interval only after single-flight succeeds.
         val captureRequestAtMillis = SystemClock.elapsedRealtime()
         if (!screenshotCaptureThrottle.tryAcquire(captureRequestAtMillis)) {
-            screenshotLifecycle.finish(requestId)
+            finishScreenshotRequest(requestId)
             logDeny("screenshot", "capture_throttled_min_interval")
             return
         }
@@ -334,6 +345,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             if (screenshotLifecycle.timeoutCapture(requestId)) {
                 screenshotCaptureTimeout = null
                 Log.w(TAG, "capture_timeout request_id=$requestId state_recovered=true")
+                drainLatestFrame()
             }
         }
         screenshotCaptureTimeout = captureTimeout
@@ -396,6 +408,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             }
                             if (screenshotLifecycle.failCapture(requestId)) {
                                 Log.w(TAG, "capture_callback_error request_id=$requestId error_code=$errorCode")
+                                drainLatestFrame()
                             } else {
                                 logDeny("screenshot", "late_capture_failure request_id=$requestId")
                             }
@@ -420,6 +433,40 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 screenshotLifecycle.finish(requestId)
             }
         )
+    }
+
+    private fun finishScreenshotRequest(requestId: Long) {
+        if (screenshotLifecycle.finish(requestId)) drainLatestFrame()
+    }
+
+    /**
+     * Dispatches only the newest deferred frame after the previous capture/inference owner releases.
+     * The one-slot mailbox is bounded and stale or non-foreground frames are discarded.
+     */
+    private fun drainLatestFrame() {
+        if (!latestFrameCoalescer.hasPending()) return
+        pendingFrameDrain?.let(mainHandler::removeCallbacks)
+        val waitMillis = screenshotCaptureThrottle.millisUntilAllowed(SystemClock.elapsedRealtime())
+        if (waitMillis > 0L) {
+            val drain = Runnable {
+                pendingFrameDrain = null
+                drainLatestFrame()
+            }
+            pendingFrameDrain = drain
+            mainHandler.postDelayed(drain, waitMillis)
+            return
+        }
+        val pending = latestFrameCoalescer.poll() ?: return
+        val activePackage = runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
+        val now = System.currentTimeMillis()
+        if (activePackage != TARGET_PACKAGE || pending.snapshot.packageName != TARGET_PACKAGE ||
+            !AccessibilitySnapshotFreshnessPolicy.isFresh(pending.snapshot.observedAtEpochMillis, now)
+        ) {
+            Log.d(TAG, "frame_coalesced_drop reason=stale_or_target_not_foreground")
+            return
+        }
+        Log.d(TAG, "frame_coalesced_dispatch age_ms=${(now - pending.snapshot.observedAtEpochMillis).coerceAtLeast(0L)}")
+        captureAndAttemptAction(pending.snapshot, pending.previous, now)
     }
 
     private fun initializeAiRuntimeIfAvailable(generation: Long) {
