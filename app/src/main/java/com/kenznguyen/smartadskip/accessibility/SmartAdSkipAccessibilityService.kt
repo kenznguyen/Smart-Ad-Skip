@@ -518,7 +518,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     AdUiElement(
                         id = "node-$index",
                         bounds = node.bounds,
-                        description = node.text?.takeIf { it.isNotBlank() }\n                            ?: node.contentDescription?.takeIf { it.isNotBlank() },
+                        description = node.text?.takeIf { it.isNotBlank() }
+                            ?: node.contentDescription?.takeIf { it.isNotBlank() },
                         clickable = true
                     )
                 }.take(MAX_AI_ELEMENTS)
