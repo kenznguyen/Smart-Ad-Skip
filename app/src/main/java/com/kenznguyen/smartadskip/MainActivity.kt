@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,19 +19,30 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kenznguyen.smartadskip.accessibility.AccessibilityMonitorRepository
+import com.kenznguyen.smartadskip.ai.AiRuntimeDashboardStatus
+import com.kenznguyen.smartadskip.ai.QwenRuntimePhase
+import com.kenznguyen.smartadskip.ai.ModelPackageImporter
 import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshotPolicy
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import com.kenznguyen.smartadskip.overlay.OverlayRequestRepository
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +60,34 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AccessibilityMonitorScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var modelImportStatus by remember {
+        mutableStateOf(
+            if (File(context.filesDir, "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.MODEL_FILE).isFile) {
+                "Qwen3-VL model package is installed"
+            } else {
+                "Qwen3-VL model not imported"
+            }
+        )
+    }
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                modelImportStatus = "Importing and verifying model package…"
+                modelImportStatus = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val input = context.contentResolver.openInputStream(uri)
+                            ?: error("Cannot open selected model package")
+                        input.use {
+                            ModelPackageImporter(File(context.filesDir, "models")).importPackage(it)
+                        }
+                    }
+                    "Qwen3-VL model imported and verified"
+                }.getOrElse { "Model import failed: " + (it.message ?: "invalid package") }
+            }
+        }
+    }
+    val aiRuntimeStatus by AiRuntimeDashboardStatus.state.collectAsState()
     val isConnected by AccessibilityMonitorRepository.isConnected.collectAsState()
     val snapshot by AccessibilityMonitorRepository.latestSnapshot.collectAsState()
     val currentSnapshot = snapshot
@@ -78,8 +119,53 @@ private fun AccessibilityMonitorScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Smart Ad Skip", style = MaterialTheme.typography.headlineMedium)
-        Text("P2.11 · Scrollable Dashboard + Floating Overlay", style = MaterialTheme.typography.titleMedium)
+        Text("P2.17 · Dual-Path AI + Strict Safety", style = MaterialTheme.typography.titleMedium)
         Text("Monitor: ${if (isConnected) "Connected" else "Not enabled"}", style = MaterialTheme.typography.bodyLarge)
+        Button(onClick = { modelPicker.launch(arrayOf("application/zip", "application/octet-stream")) }) {
+            Text("Import Qwen3-VL model ZIP")
+        }
+
+        Text(modelImportStatus, style = MaterialTheme.typography.bodySmall)
+        Text("P2.17 · Autonomous AI Runtime", style = MaterialTheme.typography.titleMedium)
+        val modelFilesPresent = File(
+            context.filesDir,
+            "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.MODEL_FILE
+        ).isFile && File(
+            context.filesDir,
+            "models/" + ModelPackageImporter.MODEL_DIRECTORY + "/" + ModelPackageImporter.PROJECTOR_FILE
+        ).isFile
+        val runtimeLabel = when (aiRuntimeStatus.phase) {
+            QwenRuntimePhase.NOT_IMPORTED -> if (modelFilesPresent) {
+                if (isConnected) "IMPORTED · SERVICE RECONNECT REQUIRED" else "IMPORTED · WAITING FOR ACCESSIBILITY SERVICE"
+            } else "NOT IMPORTED"
+            QwenRuntimePhase.LOADING -> "LOADING"
+            QwenRuntimePhase.READY -> "READY"
+            QwenRuntimePhase.FAILED -> "FAILED"
+            QwenRuntimePhase.STOPPED -> "STOPPED"
+        }
+        Text("Qwen3-VL runtime: ${runtimeLabel}", style = MaterialTheme.typography.bodyLarge)
+        Text("Runtime detail: ${aiRuntimeStatus.detail}", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Inference settings: CPU ${aiRuntimeStatus.config.cpuThreads} threads · context ${aiRuntimeStatus.config.contextSize} · batch ${aiRuntimeStatus.config.batchSize}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Image edge: ${aiRuntimeStatus.config.maxImageEdge}px · timeout ${aiRuntimeStatus.config.inferenceTimeoutMillis}ms · confidence ≥ 0.85 · frame age ≤ 1500ms",
+            style = MaterialTheme.typography.bodySmall
+        )
+        val lastDecisionAt = if (aiRuntimeStatus.lastObservedAtEpochMillis > 0L) {
+            EVENT_TIME_FORMATTER.format(Instant.ofEpochMilli(aiRuntimeStatus.lastObservedAtEpochMillis))
+        } else "—"
+        Text("Latest model decision: ${aiRuntimeStatus.lastAction}", style = MaterialTheme.typography.bodyMedium)
+        Text("Decision reason: ${aiRuntimeStatus.lastReason}", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Frame ID: ${if (aiRuntimeStatus.lastFrameId > 0L) aiRuntimeStatus.lastFrameId.toString() else "—"} · at $lastDecisionAt · decisions ${aiRuntimeStatus.inferenceCount} · WAIT ${aiRuntimeStatus.waitCount} · action suggestions ${aiRuntimeStatus.actionCount}",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "Model action suggestions are not confirmed clicks. Shared safety checks and live Accessibility-node validation remain mandatory.",
+            style = MaterialTheme.typography.bodySmall
+        )
         Button(onClick = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }) {
@@ -90,8 +176,9 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Floating overlay: ${if (overlayRequested) "Requested" else "Off"}", style = MaterialTheme.typography.bodyMedium)
         Text("Detected ad state: $displayedAdState", style = MaterialTheme.typography.bodyLarge)
-        Text("Latest observed package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Window class: ${currentSnapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Active window package: ${currentSnapshot?.packageName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Activity candidate (window-state event): ${currentSnapshot?.activityClassName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        Text("Event source class (diagnostic): ${currentSnapshot?.windowClassName ?: "—"}", style = MaterialTheme.typography.bodySmall)
         Text("Event type: ${currentSnapshot?.eventType?.toString() ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text(
             "Structural nodes: ${currentSnapshot?.structuralNodes?.size?.toString() ?: "—"} · Clickable: ${currentSnapshot?.clickableNodeCount?.toString() ?: "—"}",
@@ -148,8 +235,8 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
-        Text("Safety: Strict · No ad-surface, CTA, reward, unknown or completed-context clicks", style = MaterialTheme.typography.bodyMedium)
-        Text("Text, content descriptions, input values, screenshots and OCR are not collected.", style = MaterialTheme.typography.bodySmall)
+        Text("Safety: AI-only NEXT_AD/CLOSE · protected destinations and completed-ad contexts are blocked", style = MaterialTheme.typography.bodyMedium)
+        Text("Screenshots and bounded clickable-node descriptions are processed locally by Qwen3-VL; no screen data is sent to a network service.", style = MaterialTheme.typography.bodySmall)
     }
 }
 

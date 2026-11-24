@@ -1,0 +1,74 @@
+name: P2.17 Android CI
+
+on:
+  push:
+    branches:
+      - feature/p2-17-autonomous-ai-ad-interaction
+  pull_request:
+    branches:
+      - feature/p2-16-stable-accessibility-node-match
+      - feature/p2-17-autonomous-ai-ad-interaction
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p2-17-android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Unit tests and debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure preinstalled Android SDK
+        run: |
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          test -d "$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          sdkmanager_path="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$sdkmanager_path"
+          echo "$(dirname "$sdkmanager_path")" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Fetch pinned llama.cpp source
+        run: |
+          chmod +x scripts/fetch_llama_cpp.sh
+          scripts/fetch_llama_cpp.sh
+
+      - name: Run unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble debug APK
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-ad-skip-p2-17-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

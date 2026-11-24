@@ -4,9 +4,8 @@ import com.kenznguyen.smartadskip.detection.AdState
 
 /**
  * Final action allowlist for Click Authorization.
- * Candidate discovery (OCR or symbol classification) is not sufficient to click.
- * The service must first pass package, freshness, and live Accessibility checks.
- * Completed ad contexts are always blocked.
+ * The AI selects the action; this policy only applies the final action allowlist
+ * and blocks known completed-ad contexts after live Accessibility re-identification.
  */
 class ActionExecutionPolicy {
     fun canClick(adState: AdState, detectedAction: VisualActionType): Boolean =
