@@ -63,11 +63,31 @@ class LlamaCppQwen3VlRuntime(
 
     override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
         check(isModelReady) { "qwen3_vl_not_ready" }
-        return lifecycle.infer(requestId = context.frameId) { inferBlocking(context) }
-            .awaitResult { lifecycle.markInferenceCallerTimedOut() }
+        val prepared = prepareInference(context)
+        return try {
+            val raw = lifecycle.infer(requestId = context.frameId) {
+                NativeQwen3Vl.infer(
+                    prepared.pixels,
+                    prepared.width,
+                    prepared.height,
+                    prepared.prompt
+                )
+            }.awaitResult { lifecycle.markInferenceCallerTimedOut() }
+            Qwen3VlOutputParser.parse(raw)
+        } finally {
+            // The JNI lambda retains the pixel array until the native call actually returns.
+            // Bitmap resources are already recycled by prepareInference().
+        }
     }
 
-    private fun inferBlocking(context: AdFrameContext): Qwen3VlOutput {
+    private data class PreparedInference(
+        val pixels: IntArray,
+        val width: Int,
+        val height: Int,
+        val prompt: String
+    )
+
+    private fun prepareInference(context: AdFrameContext): PreparedInference {
         val decoded = BitmapFactory.decodeByteArray(context.imageJpeg, 0, context.imageJpeg.size)
             ?: throw IllegalArgumentException("screenshot_decode_failed")
         val scale = minOf(1f, config.maxImageEdge.toFloat() / maxOf(decoded.width, decoded.height))
@@ -82,8 +102,12 @@ class LlamaCppQwen3VlRuntime(
         try {
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-            val raw = NativeQwen3Vl.infer(pixels, bitmap.width, bitmap.height, buildPrompt(context))
-            return Qwen3VlOutputParser.parse(raw)
+            return PreparedInference(
+                pixels = pixels,
+                width = bitmap.width,
+                height = bitmap.height,
+                prompt = buildPrompt(context)
+            )
         } finally {
             if (bitmap !== decoded) bitmap.recycle()
             decoded.recycle()
