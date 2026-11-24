@@ -1,5 +1,6 @@
 package com.kenznguyen.smartadskip.accessibility
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,6 +28,14 @@ class ScreenshotCaptureThrottleTest {
         assertTrue(throttle.tryAcquire(nowMillis = 10_000L))
         assertFalse(throttle.tryAcquire(nowMillis = 10_900L))
         assertTrue(throttle.tryAcquire(nowMillis = 11_000L))
+    }
+
+    @Test fun reportsRemainingTimeUntilNextCaptureIsAllowed() {
+        val throttle = ScreenshotCaptureThrottle(minIntervalMillis = 1_000L)
+        assertTrue(throttle.tryAcquire(nowMillis = 10_000L))
+
+        assertEquals(500L, throttle.millisUntilAllowed(nowMillis = 10_500L))
+        assertEquals(0L, throttle.millisUntilAllowed(nowMillis = 11_000L))
     }
 
     @Test fun resetAllowsAnImmediateNewCapture() {
