@@ -1,5 +1,6 @@
 package com.kenznguyen.smartadskip.ai
 
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -15,12 +16,13 @@ class NativeResourceFailureTest {
         val closeCount = AtomicInteger()
         try {
             lifecycle.load { }.get(2, TimeUnit.SECONDS)
-            val inferenceFailure = runCatching {
+            val failure = runCatching {
                 lifecycle.infer<String> { throw IllegalStateException("injected_native_inference_failure") }
                     .get(2, TimeUnit.SECONDS)
             }.exceptionOrNull()
 
-            assertTrue(inferenceFailure is IllegalStateException)
+            assertTrue(failure is ExecutionException)
+            assertEquals("injected_native_inference_failure", failure?.cause?.message)
             lifecycle.close { closeCount.incrementAndGet() }.get(2, TimeUnit.SECONDS)
             assertEquals(1, closeCount.get())
             assertEquals(NativeRuntimeLifecycle.State.CLOSED, lifecycle.state)
@@ -57,7 +59,8 @@ class NativeResourceFailureTest {
                     .get(2, TimeUnit.SECONDS)
             }.exceptionOrNull()
 
-            assertTrue(failure is IllegalStateException)
+            assertTrue(failure is ExecutionException)
+            assertEquals("injected_native_close_failure", failure?.cause?.message)
             assertEquals(NativeRuntimeLifecycle.State.CLOSED, lifecycle.state)
         } finally {
             executor.shutdownNow()
