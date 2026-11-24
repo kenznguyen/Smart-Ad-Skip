@@ -51,7 +51,7 @@ class ModelPackageImporter(private val modelsRoot: File) {
 
             require(seen == ALLOWED_ENTRIES) { "package_missing_required_entries" }
             val manifest = Properties().apply {
-                staging.resolve(MANIFEST_FILE).inputStream().buffered().use(::load)
+                staging.resolve(MANIFEST_FILE).inputStream().buffered().use { load(it) }
             }
             validateManifest(manifest, staging)
             validateGguf(staging.resolve(MODEL_FILE))
