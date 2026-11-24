@@ -41,6 +41,33 @@ class NativeRuntimeLifecycleTest {
         }
     }
 
+
+    @Test fun concurrentInferenceIsReportedAsBusyAndSlotRecoversAfterCompletion() {
+        val executor = Executors.newSingleThreadExecutor()
+        val lifecycle = NativeRuntimeLifecycle(executor)
+        val inferenceStarted = CountDownLatch(1)
+        val releaseInference = CountDownLatch(1)
+        try {
+            lifecycle.load { }.get(2, TimeUnit.SECONDS)
+            val first = lifecycle.infer {
+                inferenceStarted.countDown()
+                check(releaseInference.await(2, TimeUnit.SECONDS))
+                "first"
+            }
+            assertTrue(inferenceStarted.await(2, TimeUnit.SECONDS))
+
+            val busy = runCatching { lifecycle.infer { "must-not-run" } }.exceptionOrNull()
+            assertTrue(busy is NativeInferenceBusyException)
+
+            releaseInference.countDown()
+            assertEquals("first", first.get(2, TimeUnit.SECONDS))
+            assertEquals("second", lifecycle.infer { "second" }.get(2, TimeUnit.SECONDS))
+        } finally {
+            releaseInference.countDown()
+            executor.shutdownNow()
+        }
+    }
+
     @Test fun inferenceIsRejectedAfterCloseIsRequested() {
         val executor = Executors.newSingleThreadExecutor()
         val lifecycle = NativeRuntimeLifecycle(executor)
