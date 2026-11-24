@@ -27,6 +27,7 @@ data class AiRuntimeDashboardSnapshot(
     val lastInferenceDurationMillis: Long = 0L,
     val maxInferenceDurationMillis: Long = 0L,
     val queueCoalescedCount: Long = 0L,
+    val queueReplacementCount: Long = 0L,
     val queueDispatchedCount: Long = 0L,
     val queueDroppedCount: Long = 0L,
     val lastQueueDropReason: String = "—",
@@ -141,7 +142,10 @@ object AiRuntimeDashboardStatus {
     }
 
     fun recordQueueCoalesced(replaced: Boolean) = update {
-        it.copy(queueCoalescedCount = it.queueCoalescedCount + 1)
+        it.copy(
+            queueCoalescedCount = it.queueCoalescedCount + 1,
+            queueReplacementCount = it.queueReplacementCount + if (replaced) 1 else 0
+        )
     }
 
     fun recordQueueDispatched() = update {
