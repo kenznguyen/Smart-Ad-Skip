@@ -5,6 +5,8 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+internal class NativeInferenceBusyException : IllegalStateException("native_inference_busy")
+
 /**
  * Serializes every JNI lifecycle operation. Inference is single-flight; close is
  * non-blocking and queued behind any native call already executing.
@@ -51,18 +53,20 @@ internal class NativeRuntimeLifecycle(
         val future = CompletableFuture<T>()
         synchronized(lock) {
             check(currentState == State.READY && !closeRequested) { "native_runtime_not_ready" }
-            check(!inferenceInFlight) { "native_inference_busy" }
+            if (inferenceInFlight) throw NativeInferenceBusyException()
             inferenceInFlight = true
             executor.execute {
                 try {
                     checkNotClosing()
                     val result = nativeInference()
                     checkNotClosing()
+                    // Release single-flight ownership before completing the future. Completion
+                    // callbacks may synchronously schedule the next inference.
+                    synchronized(lock) { inferenceInFlight = false }
                     future.complete(result)
                 } catch (error: Throwable) {
-                    future.completeExceptionally(error)
-                } finally {
                     synchronized(lock) { inferenceInFlight = false }
+                    future.completeExceptionally(error)
                 }
             }
         }

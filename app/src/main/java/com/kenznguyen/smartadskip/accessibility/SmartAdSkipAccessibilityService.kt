@@ -43,6 +43,7 @@ import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -61,7 +62,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val aiRuntimeConfig = Qwen3VlRuntimeConfig()
     private var qwenRuntime: LlamaCppQwen3VlRuntime? = null
     private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
-    private var aiInitializationStarted = false
+    private val aiServiceLifecycleGate = AiServiceLifecycleGate()
+    private var serviceGeneration = 0L
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val screenshotCaptureThrottle = ScreenshotCaptureThrottle()
     private var screenshotCaptureTimeout: Runnable? = null
@@ -70,15 +72,19 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private var previousSnapshot: AccessibilitySnapshot? = null
     private var lastActionableUiState: Pair<String?, List<StructuralNodeMetadata>>? = null
     private val attemptedControlKeys = mutableSetOf<String>()
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var serviceScope = newServiceScope()
     private var overlayRoot: LinearLayout? = null
     private var overlayStatus: TextView? = null
     private var overlayCollapsed = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        serviceGeneration = aiServiceLifecycleGate.connect()
+        if (serviceScope.coroutineContext[Job]?.isActive != true) {
+            serviceScope = newServiceScope()
+        }
         resetMonitoringState()
-        initializeAiRuntimeIfAvailable()
+        initializeAiRuntimeIfAvailable(serviceGeneration)
         AccessibilityMonitorRepository.setConnected(true)
         serviceScope.launch {
             OverlayRequestRepository.requested.collect { requested ->
@@ -141,13 +147,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
         AdDetectionRepository.publish(state)
         AccessibilityMonitorRepository.publish(snapshot)
-        initializeAiRuntimeIfAvailable()
+        initializeAiRuntimeIfAvailable(serviceGeneration)
         captureAndAttemptAction(snapshot, priorSnapshot, now)
     }
 
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        aiServiceLifecycleGate.disconnect()
+        serviceScope.cancel()
         removeOverlay()
         val runtimeToClose = qwenRuntime
         qwenRuntime = null
@@ -159,6 +167,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        aiServiceLifecycleGate.disconnect()
         removeOverlay()
         serviceScope.cancel()
         val runtimeToClose = qwenRuntime
@@ -271,6 +280,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         overlayStatus = null
         overlayCollapsed = false
     }
+
+    private fun newServiceScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private fun resetMonitoringState() {
         previousSnapshot = null
@@ -411,8 +422,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun initializeAiRuntimeIfAvailable() {
-        if (aiInitializationStarted) return
+    private fun initializeAiRuntimeIfAvailable(generation: Long) {
         val modelDirectory = File(filesDir, "models/${ModelPackageImporter.MODEL_DIRECTORY}")
         val modelFile = File(modelDirectory, ModelPackageImporter.MODEL_FILE)
         val projectorFile = File(modelDirectory, ModelPackageImporter.PROJECTOR_FILE)
@@ -420,28 +430,34 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             AiRuntimeDashboardStatus.setNotImported()
             return
         }
+        if (!aiServiceLifecycleGate.tryBeginInitialization(generation)) return
 
-        aiInitializationStarted = true
         AiRuntimeDashboardStatus.setLoading(aiRuntimeConfig)
         val runtime = LlamaCppQwen3VlRuntime(aiRuntimeConfig)
         qwenRuntime = runtime
         serviceScope.launch {
             try {
                 runtime.load(modelFile, projectorFile)
-                if (qwenRuntime !== runtime || !runtime.isModelReady) return@launch
+                if (!aiServiceLifecycleGate.isCurrent(generation) ||
+                    qwenRuntime !== runtime || !runtime.isModelReady
+                ) {
+                    runtime.close()
+                    return@launch
+                }
                 AiRuntimeDashboardStatus.setReady()
                 aiDecisionEngine = AutonomousAdDecisionEngine(
                     runtime,
                     inferenceTimeoutMillis = aiRuntimeConfig.inferenceTimeoutMillis
                 )
-                Log.i(TAG, "ai_runtime_ready engine=qwen3-vl-2b")
+                Log.i(TAG, "ai_runtime_ready engine=qwen3-vl-2b generation=$generation")
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 runtime.close()
                 throw cancelled
             } catch (error: Exception) {
                 runtime.close()
-                if (qwenRuntime === runtime) {
+                if (aiServiceLifecycleGate.isCurrent(generation) && qwenRuntime === runtime) {
                     qwenRuntime = null
+                    aiDecisionEngine = null
                     AiRuntimeDashboardStatus.setFailed("model_load_failed=${error.javaClass.simpleName}")
                     logDeny("ai_runtime", "model_load_failed=${error.javaClass.simpleName}")
                 }
@@ -568,6 +584,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         }
                     }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 AiRuntimeDashboardStatus.recordDecision(
                     action = "WAIT",
