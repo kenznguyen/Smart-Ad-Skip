@@ -35,6 +35,24 @@ class NativeProcessRecoveryPolicyTest {
         )
     }
 
+    @Test fun bindingDeathAllowsExplicitUnbindAndRebindWithinRecoveryBudget() {
+        assertEquals(
+            NativeProcessRecoveryPolicy.Action.RESTART_PROCESS,
+            NativeProcessRecoveryPolicy.evaluate(false, 0L, 0, 100_000L, null)
+        )
+    }
+
+    @Test fun bindingDeathFailsClosedWhenRestartBudgetOrCooldownIsExhausted() {
+        assertEquals(
+            NativeProcessRecoveryPolicy.Action.FAIL_CLOSED,
+            NativeProcessRecoveryPolicy.evaluate(false, 0L, 2, 100_000L, null)
+        )
+        assertEquals(
+            NativeProcessRecoveryPolicy.Action.FAIL_CLOSED,
+            NativeProcessRecoveryPolicy.evaluate(false, 0L, 1, 20_000L, 10_000L)
+        )
+    }
+
     @Test fun liveProcessBelowThresholdIsNotKilledEvenAfterCallerTimeout() {
         assertEquals(
             NativeProcessRecoveryPolicy.Action.KEEP_RUNNING,
