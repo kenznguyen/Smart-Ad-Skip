@@ -24,7 +24,7 @@ if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR "Smart Ad Skip Qwen3-VL runtime supports arm64-v8a only")
 endif()
 
-set(LLAMA_SRC "${CMAKE_CURRENT_LIST_DIR}/../../../../../third_party/llama.cpp")
+set(LLAMA_SRC "${CMAKE_CURRENT_LIST_DIR}/../../../../third_party/llama.cpp")
 if(NOT EXISTS "${LLAMA_SRC}/CMakeLists.txt")
     message(FATAL_ERROR "Pinned llama.cpp source missing; run scripts/fetch_llama_cpp.sh")
 endif()
