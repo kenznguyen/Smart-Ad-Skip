@@ -11,8 +11,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ModelPackageImporterTest {
-    private val model = byteArrayOf(0x47, 0x47, 0x55, 0x46, 1, 2, 3)
-    private val mmproj = byteArrayOf(0x47, 0x47, 0x55, 0x46, 4, 5, 6)
+    private val model = byteArrayOf(0x47, 0x47, 0x55, 0x46, 3, 0, 0, 0, 1, 2, 3)
+    private val mmproj = byteArrayOf(0x47, 0x47, 0x55, 0x46, 3, 0, 0, 0, 4, 5, 6)
 
     @Test fun importsOnlyWhenBothGgufFilesMatchManifestHashes() {
         val root = createTempDir(prefix = "model-import-test")
@@ -43,7 +43,7 @@ class ModelPackageImporterTest {
         val root = createTempDir(prefix = "model-import-test")
         try {
             assertThrows(IllegalArgumentException::class.java) {
-                ModelPackageImporter(root).importPackage(packageZip("NOPE".toByteArray(), mmproj))
+                ModelPackageImporter(root).importPackage(packageZip(byteArrayOf(0x4e, 0x4f, 0x50, 0x45, 3, 0, 0, 0), mmproj))
             }
         } finally {
             root.deleteRecursively()
