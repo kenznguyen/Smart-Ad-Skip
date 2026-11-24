@@ -436,7 +436,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun finishScreenshotRequest(requestId: Long) {
-        if (screenshotLifecycle.finish(requestId)) drainLatestFrame()
+        if (screenshotLifecycle.finish(requestId)) {
+            // AI completion may run on Dispatchers.Default; all AccessibilityService work stays on main.
+            mainHandler.post { drainLatestFrame() }
+        }
     }
 
     /**
