@@ -20,7 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -252,33 +252,35 @@ internal class IsolatedQwen3VlRuntime(
             remote != null
         }
         if (!alreadyConnected) {
-            try {
-                withTimeout(NativeIpcTimeoutPolicy.CONNECTION_TIMEOUT_MILLIS) { connectionFuture.awaitResult() }
-            } catch (timeout: TimeoutCancellationException) {
+            val connected = withTimeoutOrNull(NativeIpcTimeoutPolicy.CONNECTION_TIMEOUT_MILLIS) {
+                connectionFuture.awaitResult()
+            }
+            if (connected == null) {
                 handleRemoteLoss(
                     reason = "native_process_connection_timeout",
                     unbind = true,
                     allowRecovery = true
                 )
-                throw IllegalStateException("native_process_connection_timeout", timeout)
+                throw IllegalStateException("native_process_connection_timeout")
             }
         }
         if (remotePid <= 0) {
-            try {
-                withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.HELLO, config.inferenceTimeoutMillis)) {
-                    request(
-                        NativeInferenceProcessService.MSG_HELLO,
-                        Bundle(),
-                        killProcessOnCancel = NativeIpcTimeoutPolicy.terminateProcessOnTimeout(NativeIpcTimeoutPolicy.Request.HELLO)
-                    )
-                }
-            } catch (timeout: TimeoutCancellationException) {
+            val hello = withTimeoutOrNull(
+                NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.HELLO, config.inferenceTimeoutMillis)
+            ) {
+                request(
+                    NativeInferenceProcessService.MSG_HELLO,
+                    Bundle(),
+                    killProcessOnCancel = NativeIpcTimeoutPolicy.terminateProcessOnTimeout(NativeIpcTimeoutPolicy.Request.HELLO)
+                )
+            }
+            if (hello == null) {
                 handleRemoteLoss(
                     reason = "native_process_hello_timeout",
                     unbind = true,
                     allowRecovery = true
                 )
-                throw IllegalStateException("native_process_hello_timeout", timeout)
+                throw IllegalStateException("native_process_hello_timeout")
             }
         }
     }
