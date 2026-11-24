@@ -64,6 +64,18 @@ jobs:
       - name: Assemble debug APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
+      - name: Compile Android instrumentation tests
+        run: gradle --no-daemon :app:assembleDebugAndroidTest --stacktrace
+
+      - name: Upload instrumentation APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-ad-skip-p2-32-instrumentation-apk
+          path: app/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
