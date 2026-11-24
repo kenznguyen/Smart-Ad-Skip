@@ -282,8 +282,13 @@ internal class IsolatedQwen3VlRuntime(
         check(!recoveryDisabled) { "native_process_recovery_budget_exhausted" }
         val alreadyConnected = synchronized(lock) {
             if (!bound) {
+                bindingGeneration += 1L
+                connectionFuture = CompletableFuture()
+                val nextConnection = createConnection(bindingGeneration)
+                connection = nextConnection
                 val intent = Intent(appContext, NativeInferenceProcessService::class.java)
-                check(appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+                check(appContext.bindService(intent, nextConnection, Context.BIND_AUTO_CREATE)) {
+                    connection = null
                     "native_process_bind_failed"
                 }
                 bound = true
@@ -304,7 +309,7 @@ internal class IsolatedQwen3VlRuntime(
                 throw IllegalStateException("native_process_connection_timeout")
             }
         }
-        if (remotePid <= 0) {
+        if (remotePid <= 0 || processSessionId.isNullOrBlank()) {
             val hello = withTimeoutOrNull(
                 NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.HELLO, config.inferenceTimeoutMillis)
             ) {
@@ -332,12 +337,15 @@ internal class IsolatedQwen3VlRuntime(
         killProcessOnCancel: Boolean = false
     ): Bundle = suspendCancellableCoroutine { continuation ->
         val id = requestIds.getAndIncrement()
-        pending[id] = continuation
+        val generation = bindingGeneration
+        val isHandshake = what == NativeInferenceProcessService.MSG_HELLO
+        data.putLong(NativeInferenceProcessService.KEY_GENERATION, generation)
+        pending[id] = PendingRequest(generation, isHandshake, continuation)
         continuation.invokeOnCancellation {
             pending.remove(id)
             if (killProcessOnCancel) terminateRemoteProcess("inference_cancelled_or_timed_out")
         }
-        val target = remote
+        val target = synchronized(lock) { if (generation == bindingGeneration) remote else null }
         if (target == null) {
             pending.remove(id)
             continuation.resumeWithException(IllegalStateException("native_process_not_connected"))
@@ -396,8 +404,8 @@ internal class IsolatedQwen3VlRuntime(
 
     private fun failPending(reason: String) {
         pending.entries.toList().forEach { (id, continuation) ->
-            if (pending.remove(id, continuation) && continuation.isActive) {
-                continuation.resumeWithException(IllegalStateException(reason))
+            if (pending.remove(id, continuation) && continuation.continuation.isActive) {
+                continuation.continuation.resumeWithException(IllegalStateException(reason))
             }
         }
     }
@@ -416,10 +424,15 @@ internal class IsolatedQwen3VlRuntime(
         }
         synchronized(lock) {
             if (bound) {
-                runCatching { appContext.unbindService(connection) }
+                connection?.let { runCatching { appContext.unbindService(it) } }
                 bound = false
             }
+            connection = null
+            bindingGeneration += 1L
             remote = null
+            remotePid = -1
+            processSessionId = null
+            ready = false
         }
         failPending("native_process_proxy_closed")
     }
