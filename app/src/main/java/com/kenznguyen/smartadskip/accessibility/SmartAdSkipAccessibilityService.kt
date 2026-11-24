@@ -20,6 +20,13 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.kenznguyen.smartadskip.ai.AdAction
+import com.kenznguyen.smartadskip.ai.AdFrameContext
+import com.kenznguyen.smartadskip.ai.AdUiElement
+import com.kenznguyen.smartadskip.ai.AutonomousAdDecision
+import com.kenznguyen.smartadskip.ai.AutonomousAdDecisionEngine
+import com.kenznguyen.smartadskip.ai.LlamaCppQwen3VlRuntime
+import com.kenznguyen.smartadskip.ai.ModelPackageImporter
 import com.kenznguyen.smartadskip.detection.AdDetectionRepository
 import com.kenznguyen.smartadskip.detection.AdState
 import com.kenznguyen.smartadskip.detection.AdStateClassifier
@@ -29,6 +36,8 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.ArrayDeque
 import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +47,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val snapshotPolicy = AccessibilitySnapshotPolicy()
@@ -50,6 +60,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val ocrActionPolicy = OcrActionPolicy()
     private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private var qwenRuntime: LlamaCppQwen3VlRuntime? = null
+    private var aiDecisionEngine: AutonomousAdDecisionEngine? = null
+    private var aiInitializationStarted = false
     private val screenshotLifecycle = ScreenshotCaptureLifecycle()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
@@ -64,6 +77,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         resetMonitoringState()
+        initializeAiRuntimeIfAvailable()
         AccessibilityMonitorRepository.setConnected(true)
         serviceScope.launch {
             OverlayRequestRepository.requested.collect { requested ->
@@ -116,6 +130,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
         AdDetectionRepository.publish(state)
         AccessibilityMonitorRepository.publish(snapshot)
+        initializeAiRuntimeIfAvailable()
         captureAndAttemptAction(snapshot, priorSnapshot, now)
     }
 
@@ -131,6 +146,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         removeOverlay()
         serviceScope.cancel()
         runCatching { textRecognizer.close() }
+        qwenRuntime?.close()
+        qwenRuntime = null
+        aiDecisionEngine = null
         resetMonitoringState()
         super.onDestroy()
     }
@@ -280,7 +298,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     mainExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(result: ScreenshotResult) {
-                            var ownershipTransferredToOcr = false
+                            var ownershipTransferredToAi = false
                             val bitmap = try {
                                 copyScreenshot(result)
                             } catch (_: RuntimeException) {
@@ -293,21 +311,18 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             }
                             try {
                                 if (screenshotLifecycle.isCurrent(requestId)) {
-                                    // OCR classifies text candidates. Pixel classification is used
-                                    // only to discover symbol-only controls when OCR sees no text.
-                                    // Neither OCR nor pixels grant click permission.
-                                    runOcrFirstCandidateDiscovery(
+                                    runAutonomousAiDecision(
                                         bitmap = bitmap,
                                         snapshot = snapshot,
                                         previous = previous,
                                         requestId = requestId
                                     )
-                                    ownershipTransferredToOcr = true
+                                    ownershipTransferredToAi = true
                                 }
                             } catch (_: RuntimeException) {
                                 // A failed frame must never reach visual authorization or clicking.
                             } finally {
-                                if (!ownershipTransferredToOcr) {
+                                if (!ownershipTransferredToAi) {
                                     bitmap.recycle()
                                     screenshotLifecycle.finish(requestId)
                                 }
@@ -326,6 +341,142 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 screenshotLifecycle.finish(requestId)
             }
         )
+    }
+
+    private fun initializeAiRuntimeIfAvailable() {
+        if (aiInitializationStarted) return
+        val modelDirectory = File(filesDir, "models/${ModelPackageImporter.MODEL_DIRECTORY}")
+        val modelFile = File(modelDirectory, ModelPackageImporter.MODEL_FILE)
+        val projectorFile = File(modelDirectory, ModelPackageImporter.PROJECTOR_FILE)
+        if (!modelFile.isFile || !projectorFile.isFile) return
+
+        aiInitializationStarted = true
+        val runtime = LlamaCppQwen3VlRuntime()
+        serviceScope.launch {
+            runCatching { runtime.load(modelFile, projectorFile) }
+                .onSuccess {
+                    qwenRuntime = runtime
+                    aiDecisionEngine = AutonomousAdDecisionEngine(runtime)
+                    Log.i(TAG, "ai_runtime_ready engine=qwen3-vl-2b")
+                }
+                .onFailure {
+                    runtime.close()
+                    logDeny("ai_runtime", "model_load_failed=${it.javaClass.simpleName}")
+                }
+        }
+    }
+
+    /**
+     * Qwen3-VL alone selects NEXT_AD, CLOSE, or WAIT. This method packages the current
+     * screenshot and Accessibility context, then forwards a validated target to the executor.
+     */
+    private fun runAutonomousAiDecision(
+        bitmap: Bitmap,
+        snapshot: AccessibilitySnapshot,
+        previous: AccessibilitySnapshot?,
+        requestId: Long
+    ) {
+        val engine = aiDecisionEngine
+        if (engine == null) {
+            logDeny("ai_decision", "qwen3_vl_not_ready")
+            bitmap.recycle()
+            screenshotLifecycle.finish(requestId)
+            return
+        }
+
+        val jpeg = ByteArrayOutputStream()
+        if (!runCatching { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, jpeg) }.getOrDefault(false)) {
+            logDeny("ai_decision", "screenshot_encode_failed")
+            bitmap.recycle()
+            screenshotLifecycle.finish(requestId)
+            return
+        }
+        val elements = snapshot.structuralNodes.mapIndexed { index, node ->
+            AdUiElement(
+                id = "node-$index",
+                bounds = node.bounds,
+                description = node.text ?: node.contentDescription,
+                clickable = node.clickable && node.enabled && node.visible
+            )
+        }
+        val frame = AdFrameContext(
+            packageName = snapshot.packageName.orEmpty(),
+            observedAtEpochMillis = snapshot.observedAtEpochMillis,
+            screenWidth = bitmap.width,
+            screenHeight = bitmap.height,
+            imageJpeg = jpeg.toByteArray(),
+            elements = elements
+        )
+
+        serviceScope.launch(Dispatchers.Default) {
+            try {
+                val decision = engine.decide(frame)
+                withContext(Dispatchers.Main.immediate) {
+                    if (!screenshotLifecycle.isCurrent(requestId)) {
+                        logDeny("ai_decision", "stale_ai_callback")
+                        return@withContext
+                    }
+                    when (decision) {
+                        is AutonomousAdDecision.Wait -> logDeny("ai_decision", decision.reason)
+                        is AutonomousAdDecision.Act -> {
+                            val index = decision.target.id.removePrefix("node-").toIntOrNull()
+                            val targetNode = index?.let(snapshot.structuralNodes::getOrNull)
+                            val action = when (decision.action) {
+                                AdAction.NEXT_AD -> VisualActionType.NEXT_AD
+                                AdAction.CLOSE -> VisualActionType.CLOSE
+                                AdAction.WAIT -> null
+                            }
+                            if (targetNode == null || action == null) {
+                                logDeny("ai_decision", "invalid_ai_target_mapping")
+                            } else {
+                                authorizeAiDecision(
+                                    snapshot = snapshot,
+                                    previous = previous,
+                                    targetNode = targetNode,
+                                    action = action,
+                                    confidence = decision.confidence,
+                                    rationale = decision.rationale,
+                                    requestId = requestId
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                logDeny("ai_decision", "inference_failed=${error.javaClass.simpleName}")
+            } finally {
+                bitmap.recycle()
+                screenshotLifecycle.finish(requestId)
+            }
+        }
+    }
+
+    private fun authorizeAiDecision(
+        snapshot: AccessibilitySnapshot,
+        previous: AccessibilitySnapshot?,
+        targetNode: StructuralNodeMetadata,
+        action: VisualActionType,
+        confidence: Float,
+        rationale: String?,
+        requestId: Long
+    ) {
+        if (!screenshotLifecycle.isCurrent(requestId)) {
+            logDeny("ai_authorization", "stale_screenshot_request")
+            return
+        }
+        if (action !in APPROVED_ACTIONS || confidence < AutonomousAdDecisionEngine.DEFAULT_MINIMUM_CONFIDENCE) {
+            logDeny("ai_authorization", "invalid_model_action_or_confidence")
+            return
+        }
+        Log.i(TAG, "ai_decision action=$action confidence=$confidence rationale=${rationale.orEmpty()}")
+        val detectedState = adStateClassifier.classify(
+            snapshot,
+            System.currentTimeMillis(),
+            previous,
+            hasDetectedAction = true
+        )
+        AdDetectionRepository.publish(detectedState)
+        attemptAuthorizedLiveClick(snapshot, targetNode, action, detectedState)
     }
 
     /**
