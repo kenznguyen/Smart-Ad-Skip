@@ -312,11 +312,12 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val captureTimeout = Runnable {
             if (screenshotLifecycle.timeoutCapture(requestId)) {
                 screenshotCaptureTimeout = null
-                logDeny("screenshot", "capture_timeout request_id=$requestId")
+                Log.w(TAG, "capture_timeout request_id=$requestId state_recovered=true")
             }
         }
         screenshotCaptureTimeout = captureTimeout
         mainHandler.postDelayed(captureTimeout, SCREENSHOT_CAPTURE_TIMEOUT_MILLIS)
+        Log.i(TAG, "capture_requested request_id=$requestId timeout_ms=$SCREENSHOT_CAPTURE_TIMEOUT_MILLIS")
 
         ScreenshotRequestGuard.execute(
             request = {
@@ -334,6 +335,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 logDeny("screenshot", "late_capture_success request_id=$requestId")
                                 return
                             }
+                            Log.i(TAG, "capture_callback_success request_id=$requestId")
 
                             var ownershipTransferredToAi = false
                             val bitmap = try {
@@ -372,7 +374,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 screenshotCaptureTimeout = null
                             }
                             if (screenshotLifecycle.failCapture(requestId)) {
-                                logDeny("screenshot", "capture_failed_code=$errorCode")
+                                Log.w(TAG, "capture_callback_error request_id=$requestId error_code=$errorCode")
                             } else {
                                 logDeny("screenshot", "late_capture_failure request_id=$requestId")
                             }
