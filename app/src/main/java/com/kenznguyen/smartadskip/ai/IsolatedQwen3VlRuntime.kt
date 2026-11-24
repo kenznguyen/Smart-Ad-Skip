@@ -213,6 +213,9 @@ internal class IsolatedQwen3VlRuntime(
             if (remote != null) return
         }
         connectionFuture.awaitResult()
+        if (remotePid <= 0) {
+            request(NativeInferenceProcessService.MSG_HELLO, Bundle())
+        }
     }
 
     private suspend fun request(
