@@ -25,9 +25,13 @@ internal object NativeProcessSessionPolicy {
         expectedPid: Int,
         currentPid: Int,
         expectedSession: String?,
-        currentSession: String?
+        currentSession: String?,
+        expectedStartTicks: Long?,
+        currentStartTicks: Long?
     ): Boolean =
         isCurrentGeneration(expectedGeneration, currentGeneration) &&
             expectedPid > 0 && expectedPid == currentPid &&
-            isSameProcess(expectedSession, currentSession)
+            isSameProcess(expectedSession, currentSession) &&
+            expectedStartTicks != null && expectedStartTicks > 0L &&
+            expectedStartTicks == currentStartTicks
 }
