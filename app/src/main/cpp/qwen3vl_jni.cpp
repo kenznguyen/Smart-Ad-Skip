@@ -12,6 +12,7 @@
 #include <thread>
 #include <vector>
 
+#include "chat.h"
 #include "common.h"
 #include "ggml-backend.h"
 #include "llama.h"
