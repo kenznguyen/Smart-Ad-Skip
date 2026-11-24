@@ -236,7 +236,11 @@ internal class IsolatedQwen3VlRuntime(
             })
         } catch (error: RemoteException) {
             pending.remove(id)
-            ready = false
+            synchronized(lock) {
+                remote = null
+                ready = false
+                connectionFuture = CompletableFuture()
+            }
             continuation.resumeWithException(error)
         }
     }
