@@ -479,6 +479,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 null
                             }
                             if (bitmap == null) {
+                                AiRuntimeDashboardStatus.recordScreenshotFailed("screenshot_copy_failed")
                                 logDeny("screenshot", "screenshot_copy_failed")
                                 screenshotLifecycle.finish(requestId)
                                 return
