@@ -299,7 +299,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         // Android rejects takeScreenshot requests made less than 1 second apart.
         // Use monotonic time and reserve the interval only after single-flight succeeds.
-        if (!screenshotCaptureThrottle.tryAcquire(SystemClock.elapsedRealtime())) {
+        val captureRequestAtMillis = SystemClock.elapsedRealtime()
+        if (!screenshotCaptureThrottle.tryAcquire(captureRequestAtMillis)) {
             screenshotLifecycle.finish(requestId)
             logDeny("screenshot", "capture_throttled_min_interval")
             return
@@ -350,8 +351,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     }
                 )
             },
-            onFailure = {
-                logDeny("screenshot", "capture_request_failed")
+            onFailure = { error ->
+                screenshotCaptureThrottle.release(captureRequestAtMillis)
+                val errorMessage = error.message
+                    ?.replace(Regex("\\s+"), " ")
+                    ?.take(160)
+                    .orEmpty()
+                logDeny(
+                    "screenshot",
+                    "capture_request_failed exception=" + error.javaClass.simpleName + " message=" + errorMessage
+                )
                 screenshotLifecycle.finish(requestId)
             }
         )
