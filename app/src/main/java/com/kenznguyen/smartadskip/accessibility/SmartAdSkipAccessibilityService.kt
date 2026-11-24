@@ -136,6 +136,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         removeOverlay()
+        val runtimeToClose = qwenRuntime
+        qwenRuntime = null
+        aiDecisionEngine = null
+        runtimeToClose?.close()
+        AiRuntimeDashboardStatus.setStopped()
         resetMonitoringState()
         return super.onUnbind(intent)
     }
@@ -456,6 +461,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 frameId = frame.frameId,
                                 observedAtEpochMillis = frame.observedAtEpochMillis
                             )
+                            if (decision.reason == "inference_failed") {
+                                val failedRuntime = qwenRuntime
+                                qwenRuntime = null
+                                aiDecisionEngine = null
+                                failedRuntime?.close()
+                                AiRuntimeDashboardStatus.setFailed("native_inference_failed")
+                            }
                             logDeny("ai_decision", decision.reason)
                         }
                         is AutonomousDecision.Act -> {
@@ -555,10 +567,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * OCR-first candidate discovery. OCR-recognized NEXT_AD/CLOSE labels need no pixel
-     * verification. For NO_TEXT symbol-only >> / X controls, pixel classification discovers
-     * the candidate action. All candidates still require live Accessibility and final
-     * Click Authorization; OCR and pixel classification cannot authorize a click.
+     * AI-selected targets still require semantic Accessibility re-identification,
+     * freshness, protected-target veto, and final Click Authorization.
      */
     private fun isAiFrameFresh(snapshot: AccessibilitySnapshot): Boolean {
         val ageMillis = System.currentTimeMillis() - snapshot.observedAtEpochMillis
