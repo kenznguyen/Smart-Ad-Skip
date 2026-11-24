@@ -172,7 +172,7 @@ private fun AccessibilityMonitorScreen() {
             style = MaterialTheme.typography.bodySmall
         )
         Text(
-            "Frame queue: coalesced ${aiRuntimeStatus.queueCoalescedCount} · dispatched ${aiRuntimeStatus.queueDispatchedCount} · dropped ${aiRuntimeStatus.queueDroppedCount} · last drop ${aiRuntimeStatus.lastQueueDropReason}",
+            "Frame queue: coalesced ${aiRuntimeStatus.queueCoalescedCount} (replaced ${aiRuntimeStatus.queueReplacementCount}) · dispatched ${aiRuntimeStatus.queueDispatchedCount} · dropped ${aiRuntimeStatus.queueDroppedCount} · last drop ${aiRuntimeStatus.lastQueueDropReason}",
             style = MaterialTheme.typography.bodySmall
         )
         Text(
