@@ -19,15 +19,23 @@ class AutonomousTargetSafetyPolicyTest {
     )
 
     @Test fun blocksProtectedRewardAndInstallTargets() {
-        assertFalse(policy.canExecute(target(text = "Claim reward")))
-        assertFalse(policy.canExecute(target(description = "Install now")))
-        assertFalse(policy.canExecute(target(text = "Learn more")))
-        assertFalse(policy.canExecute(target(text = "Continue")))
+        assertFalse(policy.canExecute(target(text = "Claim reward"), AdAction.CLOSE))
+        assertFalse(policy.canExecute(target(description = "Install now"), AdAction.CLOSE))
+        assertFalse(policy.canExecute(target(text = "Learn more"), AdAction.NEXT_AD))
+        assertFalse(policy.canExecute(target(text = "Continue"), AdAction.NEXT_AD))
     }
 
-    @Test fun allowsSymbolOnlyAndSkipCloseTargets() {
-        assertTrue(policy.canExecute(target()))
-        assertTrue(policy.canExecute(target(text = "Skip")))
-        assertTrue(policy.canExecute(target(description = "Close")))
+    @Test fun rejectsCompletelyUnlabelledTargets() {
+        assertFalse(policy.canExecute(target(), AdAction.CLOSE))
+        assertFalse(policy.canExecute(target(text = "  "), AdAction.NEXT_AD))
+    }
+
+    @Test fun allowsOnlyActionSpecificSkipAndCloseLabels() {
+        assertTrue(policy.canExecute(target(text = "Skip"), AdAction.NEXT_AD))
+        assertTrue(policy.canExecute(target(description = "Close"), AdAction.CLOSE))
+        assertTrue(policy.canExecute(target(text = ">>"), AdAction.NEXT_AD))
+        assertTrue(policy.canExecute(target(text = "✕"), AdAction.CLOSE))
+        assertFalse(policy.canExecute(target(text = ">>"), AdAction.CLOSE))
+        assertFalse(policy.canExecute(target(text = "✕"), AdAction.NEXT_AD))
     }
 }
