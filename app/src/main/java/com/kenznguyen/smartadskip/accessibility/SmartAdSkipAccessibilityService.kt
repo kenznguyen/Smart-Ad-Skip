@@ -481,8 +481,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
                                 if (!foreground.isValid) {
                                     logDeny("foreground_window", "capture_callback_${foreground.status.name.lowercase()}")
-                                    bitmap.recycle()
-                                    screenshotLifecycle.finish(requestId)
                                     return
                                 }
                                 if (screenshotLifecycle.isCurrent(requestId)) {
