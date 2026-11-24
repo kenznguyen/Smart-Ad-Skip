@@ -24,7 +24,7 @@ import com.kenznguyen.smartadskip.ai.AdAction
 import com.kenznguyen.smartadskip.ai.AdFrameContext
 import com.kenznguyen.smartadskip.ai.AdUiElement
 import com.kenznguyen.smartadskip.ai.AutonomousTargetSafetyPolicy
-import com.kenznguyen.smartadskip.ai.AutonomousAdDecision
+import com.kenznguyen.smartadskip.ai.AutonomousDecision
 import com.kenznguyen.smartadskip.ai.AutonomousAdDecisionEngine
 import com.kenznguyen.smartadskip.ai.LlamaCppQwen3VlRuntime
 import com.kenznguyen.smartadskip.ai.ModelPackageImporter
@@ -409,8 +409,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         return@withContext
                     }
                     when (decision) {
-                        is AutonomousAdDecision.Wait -> logDeny("ai_decision", decision.reason)
-                        is AutonomousAdDecision.Act -> {
+                        is AutonomousDecision.Wait -> logDeny("ai_decision", decision.reason)
+                        is AutonomousDecision.Act -> {
                             val index = decision.target.id.removePrefix("node-").toIntOrNull()
                             val targetNode = index?.let(snapshot.structuralNodes::getOrNull)
                             val action = when (decision.action) {
@@ -427,7 +427,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                     targetNode = targetNode,
                                     action = action,
                                     confidence = decision.confidence,
-                                    rationale = decision.rationale,
                                     requestId = requestId
                                 )
                             }
@@ -449,11 +448,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         targetNode: StructuralNodeMetadata,
         action: VisualActionType,
         confidence: Float,
-        rationale: String?,
         requestId: Long
     ) {
         if (!screenshotLifecycle.isCurrent(requestId)) {
             logDeny("ai_authorization", "stale_screenshot_request")
+            return
+        }
+        if (!isAiFrameFresh(snapshot)) {
+            logDeny("ai_authorization", "ai_frame_stale_after_inference")
             return
         }
         if (action !in APPROVED_ACTIONS || confidence < AutonomousAdDecisionEngine.DEFAULT_MINIMUM_CONFIDENCE) {
@@ -464,7 +466,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             logDeny("ai_authorization", "protected_target_label")
             return
         }
-        Log.i(TAG, "ai_decision action=$action confidence=$confidence rationale=${rationale.orEmpty()}")
+        Log.i(TAG, "ai_decision action=$action confidence=$confidence")
         val detectedState = adStateClassifier.classify(
             snapshot,
             System.currentTimeMillis(),
@@ -496,6 +498,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
      * the candidate action. All candidates still require live Accessibility and final
      * Click Authorization; OCR and pixel classification cannot authorize a click.
      */
+    private fun isAiFrameFresh(snapshot: AccessibilitySnapshot): Boolean {
+        val ageMillis = System.currentTimeMillis() - snapshot.observedAtEpochMillis
+        return ageMillis in 0L..AutonomousAdDecisionEngine.MAX_FRAME_AGE_MILLIS
+    }
+
     private fun attemptAuthorizedLiveClick(
         snapshot: AccessibilitySnapshot,
         targetNode: StructuralNodeMetadata,
@@ -506,7 +513,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             logDeny("package", "wrong_snapshot_package_before_click")
             return
         }
-        if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, System.currentTimeMillis())) {
+        if (!isAiFrameFresh(snapshot)) {
             logDeny("freshness", "snapshot_stale_before_live_lookup")
             return
         }
