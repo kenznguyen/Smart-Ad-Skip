@@ -64,11 +64,11 @@ private fun AccessibilityMonitorScreen() {
             Text("Open Accessibility Settings")
         }
         Text(
-            text = "Latest observed package: ${snapshot?.packageName ?: "—"}",
+            text = "Active window package: ${snapshot?.packageName ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
         Text(
-            text = "Window class: ${snapshot?.windowClassName ?: "—"}",
+            text = "Activity (window-state event): ${snapshot?.activityClassName ?: "—"}",
             style = MaterialTheme.typography.bodyMedium
         )
         Text(
