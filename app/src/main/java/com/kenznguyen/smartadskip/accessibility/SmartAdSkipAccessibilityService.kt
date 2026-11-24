@@ -424,7 +424,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             return
         }
         val requestId = screenshotLifecycle.begin() ?: run {
+            val replaced = latestFrameCoalescer.hasPending()
             latestFrameCoalescer.offer(PendingFrame(snapshot, previous, now))
+            AiRuntimeDashboardStatus.recordQueueCoalesced(replaced)
             Log.d(TAG, "frame_coalesced reason=screenshot_or_inference_busy pending=latest_only")
             return
         }
@@ -433,6 +435,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val captureRequestAtMillis = SystemClock.elapsedRealtime()
         if (!screenshotCaptureThrottle.tryAcquire(captureRequestAtMillis)) {
             finishScreenshotRequest(requestId)
+            AiRuntimeDashboardStatus.recordScreenshotFailed("capture_throttled_min_interval")
             logDeny("screenshot", "capture_throttled_min_interval")
             return
         }
@@ -440,12 +443,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val captureTimeout = Runnable {
             if (screenshotLifecycle.timeoutCapture(requestId)) {
                 screenshotCaptureTimeout = null
+                AiRuntimeDashboardStatus.recordScreenshotFailed("capture_timeout")
                 Log.w(TAG, "capture_timeout request_id=$requestId state_recovered=true")
                 drainLatestFrame()
             }
         }
         screenshotCaptureTimeout = captureTimeout
         mainHandler.postDelayed(captureTimeout, SCREENSHOT_CAPTURE_TIMEOUT_MILLIS)
+        AiRuntimeDashboardStatus.recordScreenshotRequested()
         Log.i(TAG, "capture_requested request_id=$requestId timeout_ms=$SCREENSHOT_CAPTURE_TIMEOUT_MILLIS")
 
         ScreenshotRequestGuard.execute(
@@ -464,6 +469,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 logDeny("screenshot", "late_capture_success request_id=$requestId")
                                 return
                             }
+                            AiRuntimeDashboardStatus.recordScreenshotSucceeded()
                             Log.i(TAG, "capture_callback_success request_id=$requestId")
 
                             var ownershipTransferredToAi = false
@@ -508,6 +514,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 screenshotCaptureTimeout = null
                             }
                             if (screenshotLifecycle.failCapture(requestId)) {
+                                AiRuntimeDashboardStatus.recordScreenshotFailed("callback_error_$errorCode")
                                 Log.w(TAG, "capture_callback_error request_id=$requestId error_code=$errorCode")
                                 drainLatestFrame()
                             } else {
@@ -523,6 +530,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     screenshotCaptureTimeout = null
                 }
                 screenshotCaptureThrottle.release(captureRequestAtMillis)
+                AiRuntimeDashboardStatus.recordScreenshotFailed("request_failed_${error.javaClass.simpleName}")
                 val errorMessage = error.message
                     ?.replace(Regex("\\s+"), " ")
                     ?.take(160)
@@ -566,9 +574,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         if (activePackage != TARGET_PACKAGE || pending.snapshot.packageName != TARGET_PACKAGE ||
             !AccessibilitySnapshotFreshnessPolicy.isFresh(pending.snapshot.observedAtEpochMillis, now)
         ) {
+            AiRuntimeDashboardStatus.recordQueueDropped("stale_or_target_not_foreground")
             Log.d(TAG, "frame_coalesced_drop reason=stale_or_target_not_foreground")
             return
         }
+        AiRuntimeDashboardStatus.recordQueueDispatched()
         Log.d(TAG, "frame_coalesced_dispatch age_ms=${(now - pending.snapshot.observedAtEpochMillis).coerceAtLeast(0L)}")
         captureAndAttemptAction(pending.snapshot, pending.previous, now)
     }
@@ -683,7 +693,21 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                     elements = elements,
                     frameId = requestId
                 )
+                val inferenceStartedAt = SystemClock.elapsedRealtime()
+                AiRuntimeDashboardStatus.inferenceStarted(inferenceStartedAt)
+                AiRuntimeDashboardStatus.setNativeProcessState("JNI_RUNNING")
                 val decision = engine.decide(frame)
+                val inferenceFinishedAt = SystemClock.elapsedRealtime()
+                if (decision is AutonomousDecision.Wait && decision.reason.contains("timeout", ignoreCase = true)) {
+                    AiRuntimeDashboardStatus.inferenceTimedOut(inferenceFinishedAt, decision.reason)
+                    AiRuntimeDashboardStatus.setNativeProcessState("JNI_STUCK_OR_TIMED_OUT")
+                } else if (decision is AutonomousDecision.Wait && decision.reason == "inference_failed") {
+                    AiRuntimeDashboardStatus.inferenceFailed(inferenceFinishedAt, decision.reason)
+                    AiRuntimeDashboardStatus.setNativeProcessState("FAILED")
+                } else {
+                    AiRuntimeDashboardStatus.inferenceCompleted(inferenceFinishedAt)
+                    AiRuntimeDashboardStatus.setNativeProcessState("READY")
+                }
                 withContext(Dispatchers.Main.immediate) {
                     if (!screenshotLifecycle.isCurrent(requestId)) {
                         logDeny("ai_decision", "stale_ai_callback")
@@ -739,6 +763,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                AiRuntimeDashboardStatus.inferenceFailed(SystemClock.elapsedRealtime(), "inference_failed_${error.javaClass.simpleName}")
+                AiRuntimeDashboardStatus.setNativeProcessState("FAILED")
                 AiRuntimeDashboardStatus.recordDecision(
                     action = "WAIT",
                     reason = "inference_failed=${error.javaClass.simpleName}",
@@ -949,6 +975,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun logDeny(stage: String, reason: String) {
+        AiRuntimeDashboardStatus.recordFailClosed("$stage:$reason")
         Log.i(TAG, "click_denied stage=$stage reason=$reason")
     }
 
