@@ -138,6 +138,7 @@ internal class IsolatedQwen3VlRuntime(
         }
         if (closed) {
             synchronized(lock) {
+                if (generation != bindingGeneration) return
                 remote = null
                 remotePid = -1
                 processSessionId = null
@@ -166,6 +167,7 @@ internal class IsolatedQwen3VlRuntime(
         } else NativeProcessRecoveryPolicy.Action.FAIL_CLOSED
 
         synchronized(lock) {
+            if (generation != bindingGeneration) return
             remote = null
             remotePid = -1
             processSessionId = null
@@ -299,6 +301,7 @@ internal class IsolatedQwen3VlRuntime(
         check(!closed) { "native_process_proxy_closed" }
         check(!recoveryDisabled) { "native_process_recovery_budget_exhausted" }
         val alreadyConnected = synchronized(lock) {
+            check(!closed) { "native_process_proxy_closed" }
             if (!bound) {
                 bindingGeneration += 1L
                 connectionFuture = CompletableFuture()
