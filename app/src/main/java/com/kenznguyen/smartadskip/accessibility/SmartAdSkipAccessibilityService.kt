@@ -20,6 +20,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.accessibility.AccessibilityNodeInfo
 import com.kenznguyen.smartadskip.ai.AiRuntimeDashboardStatus
 import com.kenznguyen.smartadskip.ai.AdAction
@@ -161,6 +162,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         // Use the active window root as the foreground-package source of truth.
         val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
         val activePackageName = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
+        val foreground = validateForegroundWindow(TARGET_PACKAGE)
+        if (!foreground.isValid) {
+            Log.d(TAG, "foreground_window_rejected stage=event reason=${foreground.status.name.lowercase()}")
+            return
+        }
         if (!adStateClassifier.isRelevantPackage(activePackageName)) return
 
         val nodes = runCatching { collectStructuralNodes(activeRoot) }
@@ -344,6 +350,53 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         AccessibilityMonitorRepository.setConnected(false)
     }
 
+
+    /**
+     * Confirms the captured frame still maps to the exact active application window.
+     * The active root package alone is insufficient after dialogs or app switches.
+     */
+    private fun validateForegroundWindow(
+        expectedPackage: String,
+        snapshotPackage: String = expectedPackage
+    ): ForegroundWindowValidationPolicy.Result {
+        val connected = aiServiceLifecycleGate.isCurrent(serviceGeneration)
+        val root = runCatching { rootInActiveWindow }.getOrNull()
+        if (root == null) {
+            return ForegroundWindowValidationPolicy.evaluate(
+                expectedPackage = expectedPackage,
+                snapshotPackage = snapshotPackage,
+                rootPackage = null,
+                rootWindowId = null,
+                activeWindowId = null,
+                activeWindowPackage = null,
+                activeWindowType = null,
+                applicationWindowType = AccessibilityWindowInfo.TYPE_APPLICATION,
+                activeWindowIsActive = false,
+                serviceConnected = connected
+            )
+        }
+
+        val rootPackage = runCatching { root.packageName?.toString() }.getOrNull()
+        val rootWindowId = runCatching { root.windowId }.getOrNull()
+        val windowList = runCatching { windows }.getOrDefault(emptyList())
+        val activeWindow = windowList.firstOrNull { it.id == rootWindowId }
+        val result = ForegroundWindowValidationPolicy.evaluate(
+            expectedPackage = expectedPackage,
+            snapshotPackage = snapshotPackage,
+            rootPackage = rootPackage,
+            rootWindowId = rootWindowId,
+            activeWindowId = activeWindow?.id,
+            activeWindowPackage = rootPackage,
+            activeWindowType = activeWindow?.type,
+            applicationWindowType = AccessibilityWindowInfo.TYPE_APPLICATION,
+            activeWindowIsActive = activeWindow?.isActive == true,
+            serviceConnected = connected
+        )
+        windowList.forEach { runCatching { it.recycle() } }
+        runCatching { root.recycle() }
+        return result
+    }
+
     /**
      * Screenshot failures are fail-closed. The request token prevents late callbacks
      * from an old service lifecycle from processing frames or releasing a newer request.
@@ -363,6 +416,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         if (!AccessibilitySnapshotFreshnessPolicy.isFresh(snapshot.observedAtEpochMillis, now)) {
             logDeny("freshness", "snapshot_stale_before_capture")
+            return
+        }
+        val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
+        if (!foreground.isValid) {
+            logDeny("foreground_window", foreground.status.name.lowercase())
             return
         }
         val requestId = screenshotLifecycle.begin() ?: run {
@@ -420,6 +478,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 return
                             }
                             try {
+                                val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
+                                if (!foreground.isValid) {
+                                    logDeny("foreground_window", "capture_callback_${foreground.status.name.lowercase()}")
+                                    bitmap.recycle()
+                                    screenshotLifecycle.finish(requestId)
+                                    return
+                                }
                                 if (screenshotLifecycle.isCurrent(requestId)) {
                                     runAutonomousAiDecision(
                                         bitmap = bitmap,
@@ -703,6 +768,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             logDeny("ai_authorization", "stale_screenshot_request")
             return
         }
+        val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
+        if (!foreground.isValid) {
+            logDeny("foreground_window", "ai_authorization_${foreground.status.name.lowercase()}")
+            return
+        }
         if (!isAiFrameFresh(snapshot)) {
             logDeny("ai_authorization", "ai_frame_stale_after_inference")
             return
@@ -759,6 +829,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     ) {
         if (snapshot.packageName != TARGET_PACKAGE) {
             logDeny("package", "wrong_snapshot_package_before_click")
+            return
+        }
+        val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
+        if (!foreground.isValid) {
+            logDeny("foreground_window", "live_lookup_${foreground.status.name.lowercase()}")
             return
         }
         if (!isAiFrameFresh(snapshot)) {
@@ -845,6 +920,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             }
             if (!autonomousTargetSafetyPolicy.canExecute(liveMetadata[selectedIndex], liveSafetyAction)) {
                 logDeny("live_accessibility", "live_target_safety_veto")
+                return
+            }
+            val finalForeground = validateForegroundWindow(snapshot.packageName.orEmpty())
+            if (!finalForeground.isValid) {
+                logDeny("foreground_window", "final_click_${finalForeground.status.name.lowercase()}")
                 return
             }
             if (!actionExecutionPolicy.canClick(adState, action)) {
