@@ -667,6 +667,15 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 logDeny("live_accessibility", "selected_node_not_visible_enabled_clickable")
                 return
             }
+            val liveSafetyAction = when (action) {
+                VisualActionType.NEXT_AD -> AdAction.NEXT_AD
+                VisualActionType.CLOSE -> AdAction.CLOSE
+                else -> AdAction.WAIT
+            }
+            if (!autonomousTargetSafetyPolicy.canExecute(liveMetadata[selectedIndex], liveSafetyAction)) {
+                logDeny("live_accessibility", "live_target_safety_veto")
+                return
+            }
             if (!actionExecutionPolicy.canClick(adState, action)) {
                 logDeny("click_authorization", "policy_denied_state=$adState action=$action")
                 return
