@@ -584,6 +584,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                         }
                     }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 AiRuntimeDashboardStatus.recordDecision(
                     action = "WAIT",
