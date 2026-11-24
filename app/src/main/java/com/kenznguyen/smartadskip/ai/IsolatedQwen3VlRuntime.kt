@@ -266,14 +266,26 @@ internal class IsolatedQwen3VlRuntime(
             putInt(NativeInferenceProcessService.KEY_MAX_EDGE, config.maxImageEdge)
             putLong(NativeInferenceProcessService.KEY_TIMEOUT, config.inferenceTimeoutMillis)
         }
-        withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.LOAD, config.inferenceTimeoutMillis)) {
+        val requestGeneration = bindingGeneration
+        val response = withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.LOAD, config.inferenceTimeoutMillis)) {
             request(
                 NativeInferenceProcessService.MSG_LOAD,
                 bundle,
                 killProcessOnCancel = NativeIpcTimeoutPolicy.terminateProcessOnTimeout(NativeIpcTimeoutPolicy.Request.LOAD)
             )
         }
-        ready = true
+        val becameReady = synchronized(lock) {
+            val responseSession = response.getString(NativeInferenceProcessService.KEY_PROCESS_SESSION)
+            if (requestGeneration != bindingGeneration || remote == null ||
+                response.getInt(NativeInferenceProcessService.KEY_PID, -1) != remotePid ||
+                !NativeProcessSessionPolicy.isSameProcess(processSessionId, responseSession)
+            ) false
+            else {
+                ready = true
+                true
+            }
+        }
+        check(becameReady) { "native_process_session_changed_during_load" }
         AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_READY")
     }
 
@@ -383,7 +395,7 @@ internal class IsolatedQwen3VlRuntime(
             lastRestartAtMillis = lastRestartAtMillis,
             stuckAfterMillis = config.inferenceTimeoutMillis
         )
-        ready = false
+        synchronized(lock) { ready = false }
         if (action == NativeProcessRecoveryPolicy.Action.TERMINATE_PROCESS && pid != Process.myPid()) {
             // Kill only the dedicated same-UID process; never clear the in-flight JNI ownership locally.
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
