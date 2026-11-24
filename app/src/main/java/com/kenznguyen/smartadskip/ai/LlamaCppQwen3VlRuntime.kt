@@ -97,7 +97,7 @@ class LlamaCppQwen3VlRuntime(
             val top = (bounds.top * imageScale).toInt()
             val right = (bounds.right * imageScale).toInt()
             val bottom = (bounds.bottom * imageScale).toInt()
-            """{"id":\${JsonPrimitive(element.id)},"bounds":[$left,$top,$right,$bottom],"clickable":\${element.clickable},"description":\${JsonPrimitive(element.description?.take(MAX_DESCRIPTION_LENGTH).orEmpty())}}"""
+            """{"id":${JsonPrimitive(element.id)},"bounds":[$left,$top,$right,$bottom],"clickable":${element.clickable},"description":${JsonPrimitive(element.description?.take(MAX_DESCRIPTION_LENGTH).orEmpty())}}"""
         }
         return """
             Inspect this Fruit Blast screen and choose exactly one action for the ad UI.
