@@ -14,30 +14,30 @@ class AccessibilitySnapshotPolicyTest {
         val snapshot = policy.create(
             packageName = "com.example.game",
             eventType = 32,
-            windowClassName = "android.widget.FrameLayout",
+            activityClassName = "com.example.game.GameActivity",
             nodeCount = 12,
             clickableNodeCount = 3
         )
 
         assertEquals("com.example.game", snapshot.packageName)
         assertEquals(32, snapshot.eventType)
-        assertEquals("android.widget.FrameLayout", snapshot.windowClassName)
+        assertEquals("com.example.game.GameActivity", snapshot.activityClassName)
         assertEquals(12, snapshot.nodeCount)
         assertEquals(3, snapshot.clickableNodeCount)
     }
 
     @Test
-    fun create_dropsBlankPackageAndWindowClassNames() {
+    fun create_dropsBlankPackageAndActivityNames() {
         val snapshot = policy.create(
             packageName = "  ",
             eventType = 0,
-            windowClassName = " ",
+            activityClassName = " ",
             nodeCount = 1,
             clickableNodeCount = 1
         )
 
         assertNull(snapshot.packageName)
-        assertNull(snapshot.windowClassName)
+        assertNull(snapshot.activityClassName)
     }
 
     @Test
@@ -45,7 +45,7 @@ class AccessibilitySnapshotPolicyTest {
         val snapshot = policy.create(
             packageName = "com.example.game",
             eventType = 1,
-            windowClassName = null,
+            activityClassName = null,
             nodeCount = 10_000,
             clickableNodeCount = 9_000
         )
@@ -59,7 +59,7 @@ class AccessibilitySnapshotPolicyTest {
         val snapshot = policy.create(
             packageName = "com.example.game",
             eventType = 1,
-            windowClassName = null,
+            activityClassName = null,
             nodeCount = -4,
             clickableNodeCount = -2
         )
@@ -73,7 +73,7 @@ class AccessibilitySnapshotPolicyTest {
         val snapshot = policy.create(
             packageName = "com.example.game",
             eventType = 1,
-            windowClassName = "android.widget.EditText",
+            activityClassName = "com.example.game.GameActivity",
             nodeCount = 2,
             clickableNodeCount = 1
         )
@@ -83,7 +83,7 @@ class AccessibilitySnapshotPolicyTest {
             .toSet()
 
         assertTrue(fieldNames.containsAll(
-            setOf("packageName", "eventType", "windowClassName", "nodeCount", "clickableNodeCount")
+            setOf("packageName", "eventType", "activityClassName", "nodeCount", "clickableNodeCount")
         ))
         assertFalse(fieldNames.any {
             it.contains("text", ignoreCase = true) ||
