@@ -145,6 +145,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         serviceScope.cancel()
         qwenRuntime?.close()
         qwenRuntime = null
+        AiRuntimeDashboardStatus.setStopped()
         aiDecisionEngine = null
         resetMonitoringState()
         super.onDestroy()
