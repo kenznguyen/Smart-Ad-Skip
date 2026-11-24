@@ -1,51 +1,35 @@
 # Smart Ad Skip
 
-Standalone Android proof of concept for safe, user-authorized ad UI assistance.
+Standalone Android proof of concept for Fruit Blast ad-interface automation.
 
 ## Project status
 
-**v0.1.0 — Foundation**
+P2.17 introduces the autonomous AI decision contract for local Qwen3-VL. See
+[docs/P2.17-AUTONOMOUS-AI.md](docs/P2.17-AUTONOMOUS-AI.md) for the implementation
+boundary and native-runtime gate.
 
-This initial milestone establishes the Android application skeleton and CI pipeline. Accessibility monitoring, ad detection, overlay controls, and skip actions are not implemented yet.
+**Important:** this PR does not yet ship the Qwen3-VL native runtime or model importer.
+The existing P2.16 execution path remains active; do not enable autonomous actions until
+the local inference bridge is built and validated on a physical device.
 
 ## Technology
 
-- Kotlin
-- Jetpack Compose
-- Android Gradle Plugin
-- Minimum Android version: API 26 (Android 8.0)
-- Compile/target SDK: API 36
+- Kotlin, Jetpack Compose, Android Accessibility
+- Android API 26+, compile/target SDK 36
 - JDK 17
 
-## Build
-
-The project uses Gradle 8.13 and Android SDK 36.
+## Build and test
 
 ```bash
 gradle :app:testDebugUnitTest
 gradle :app:assembleDebug
 ```
 
-The debug APK is generated at:
-
-`app/build/outputs/apk/debug/app-debug.apk`
-
 ## Safety boundaries
 
-- No ad SDK modification or reward callback spoofing.
-- No fabricated ad views, clicks, or reward completion.
-- No CAPTCHA or anti-bot bypass.
-- No automatic action when the UI state is ambiguous.
-- Skip/close actions will only be considered when clearly exposed by the target app and permitted by the user-approved safety rules.
-- A dismissed ad window is not proof that a reward was granted.
-
-## Planned milestones
-
-1. Foundation and CI
-2. Accessibility service lifecycle and window observation
-3. Ad/skip UI detection
-4. Floating control window
-5. Strict safety decision engine
-6. Action verification and device testing
+- No ad SDK modification, reward callback spoofing, CAPTCHA bypass, or fabricated rewards.
+- The intended AI decision set is limited to `NEXT_AD`, `CLOSE`, and `WAIT`.
+- No rule-based fallback is allowed when the local model is unavailable.
+- Android Accessibility permission remains required for any device action.
 
 Fruit Blast is the initial test application for controlled feasibility testing.
