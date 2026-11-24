@@ -71,7 +71,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: smart-ad-skip-p2-32-instrumentation-apk
+          name: smart-ad-skip-p2-34-instrumentation-apk
           path: app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
           retention-days: 14
