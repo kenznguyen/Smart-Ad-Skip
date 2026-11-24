@@ -65,7 +65,7 @@ class AccessibilityNodeMatcherTest {
     }
 
     @Test
-    fun rejectsDifferentSemanticNodeEvenWhenBoundsAreIdentical() {
+    fun rejectsNodeWhoseLabelChangesBeforeClickEvenWhenBoundsAreIdentical() {
         val detected = node("android.widget.Button", "Close", ScreenBounds(400, 100, 500, 200))
         val live = listOf(node("android.widget.Button", "Install", ScreenBounds(400, 100, 500, 200)))
 
