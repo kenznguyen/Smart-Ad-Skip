@@ -358,18 +358,22 @@ internal class IsolatedQwen3VlRuntime(
         killProcessOnCancel: Boolean = false
     ): Bundle = suspendCancellableCoroutine { continuation ->
         val id = requestIds.getAndIncrement()
-        val generation = bindingGeneration
+        val snapshot = synchronized(lock) {
+            val generation = bindingGeneration
+            Triple(generation, ProcessIdentity(generation, remotePid, processSessionId, processStartTicks), remote)
+        }
+        val generation = snapshot.first
+        val identity = snapshot.second
+        val target = snapshot.third
         val isHandshake = what == NativeInferenceProcessService.MSG_HELLO
         data.putLong(NativeInferenceProcessService.KEY_GENERATION, generation)
-        val identity = synchronized(lock) { ProcessIdentity(bindingGeneration, remotePid, processSessionId, processStartTicks) }
         val requestRecord = PendingRequest(generation, isHandshake, identity, inferenceStartedAtMillis, continuation)
         pending[id] = requestRecord
         continuation.invokeOnCancellation {
             pending.remove(id)
             if (killProcessOnCancel) terminateRemoteProcess("inference_cancelled_or_timed_out", identity, requestRecord.nativeStartedAtMillis)
         }
-        val target = synchronized(lock) { if (generation == bindingGeneration) remote else null }
-        if (target == null) {
+        if (target == null || synchronized(lock) { generation != bindingGeneration }) {
             pending.remove(id)
             continuation.resumeWithException(IllegalStateException("native_process_not_connected"))
             return@suspendCancellableCoroutine
