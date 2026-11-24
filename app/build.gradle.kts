@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.kenznguyen.smartadskip"
     compileSdk = 36
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.kenznguyen.smartadskip"
@@ -15,6 +16,10 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += listOf("arm64-v8a") }
+        externalNativeBuild {
+            cmake { arguments += listOf("-DANDROID_STL=c++_shared") }
+        }
     }
 
     buildTypes {
@@ -37,6 +42,10 @@ android {
         buildConfig = true
     }
 
+    externalNativeBuild {
+        cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" }
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
@@ -47,6 +56,8 @@ dependencies {
     implementation(libs.mlkit.text.recognition)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
     implementation(platform(libs.androidx.compose.bom))
