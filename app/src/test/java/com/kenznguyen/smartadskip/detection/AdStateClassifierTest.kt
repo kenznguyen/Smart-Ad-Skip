@@ -26,7 +26,7 @@ class AdStateClassifierTest {
     @Test
     fun sourceViewClassCannotEstablishAdContextWithoutActivityIdentity() {
         val current = snapshot(nodes = listOf(node(null)))
-            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+            .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         assertEquals(AdState.UNKNOWN, classifier.classify(current, now))
     }
 
@@ -55,14 +55,14 @@ class AdStateClassifierTest {
     @Test
     fun knownSdkActivityEstablishesAdPlaying() {
         val current = snapshot(nodes = listOf(node(null)))
-            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+            .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         assertEquals(AdState.AD_PLAYING, classifier.classify(current, now))
     }
 
     @Test
     fun sdkActivityTransitionToHostWindowProvesAdCompleted() {
         val previous = snapshot(nodes = listOf(node(null)), timestamp = now - 1_000L)
-            .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+            .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         val current = snapshot(nodes = listOf(node(null)))
         assertEquals(AdState.AD_COMPLETED, classifier.classify(current, now, previous))
     }
