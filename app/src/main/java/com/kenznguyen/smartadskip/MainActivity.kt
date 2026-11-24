@@ -190,7 +190,7 @@ private fun AccessibilityMonitorScreen() {
         }
         Text("Last event: $observedAt", style = MaterialTheme.typography.bodyMedium)
         Text("Snapshot: $snapshotFreshness", style = MaterialTheme.typography.bodyMedium)
-        Text("Safety: Strict · No ad-surface, CTA, reward, unknown or completed-context clicks", style = MaterialTheme.typography.bodyMedium)
+        Text("Safety: AI-only NEXT_AD/CLOSE · protected destinations and completed-ad contexts are blocked", style = MaterialTheme.typography.bodyMedium)
         Text("Screenshots and bounded clickable-node descriptions are processed locally by Qwen3-VL; no screen data is sent to a network service.", style = MaterialTheme.typography.bodySmall)
     }
 }
