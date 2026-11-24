@@ -10,6 +10,7 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.Process
+import android.os.SystemClock
 import android.os.RemoteException
 import com.kenznguyen.smartadskip.accessibility.ScreenBounds
 import java.io.File
@@ -41,6 +42,10 @@ internal class IsolatedQwen3VlRuntime(
     @Volatile private var ready = false
     private var bound = false
     private var closed = false
+    private var recoveryDisabled = false
+    private var restartCount = 0
+    private var lastRestartAtMillis: Long? = null
+    @Volatile private var inferenceStartedAtMillis: Long? = null
     private var modelFile: File? = null
     private var projectorFile: File? = null
     private var connectionFuture = CompletableFuture<Messenger>()
@@ -70,13 +75,35 @@ internal class IsolatedQwen3VlRuntime(
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            val now = SystemClock.elapsedRealtime()
+            val action = NativeProcessRecoveryPolicy.evaluate(
+                processAlive = false,
+                inferenceAgeMillis = 0L,
+                restartCount = restartCount,
+                nowMillis = now,
+                lastRestartAtMillis = lastRestartAtMillis
+            )
             synchronized(lock) {
                 remote = null
+                remotePid = -1
                 ready = false
                 connectionFuture = CompletableFuture()
+                if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) {
+                    restartCount += 1
+                    lastRestartAtMillis = now
+                } else if (action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED) {
+                    recoveryDisabled = true
+                    if (bound) {
+                        runCatching { appContext.unbindService(this) }
+                        bound = false
+                    }
+                }
             }
             failPending("native_process_disconnected")
-            AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_DISCONNECTED")
+            AiRuntimeDashboardStatus.setNativeProcessState(
+                if (action == NativeProcessRecoveryPolicy.Action.RESTART_PROCESS) "PROCESS_RESTART_PENDING"
+                else "PROCESS_RECOVERY_LIMIT_REACHED"
+            )
         }
 
         override fun onBindingDied(name: ComponentName?) {
@@ -100,6 +127,7 @@ internal class IsolatedQwen3VlRuntime(
 
     override suspend fun infer(context: AdFrameContext): Qwen3VlOutput = operationMutex.withLock {
         check(!closed) { "native_process_proxy_closed" }
+        check(!recoveryDisabled) { "native_process_recovery_budget_exhausted" }
         if (!ready) {
             ensureBound()
             loadRemote()
@@ -125,7 +153,12 @@ internal class IsolatedQwen3VlRuntime(
             }
             putParcelableArrayList(NativeInferenceProcessService.KEY_ELEMENTS, encoded)
         }
-        val response = request(NativeInferenceProcessService.MSG_INFER, bundle, killProcessOnCancel = true)
+        inferenceStartedAtMillis = SystemClock.elapsedRealtime()
+        val response = try {
+            request(NativeInferenceProcessService.MSG_INFER, bundle, killProcessOnCancel = true)
+        } finally {
+            inferenceStartedAtMillis = null
+        }
         val action = runCatching {
             AdAction.valueOf(response.getString(NativeInferenceProcessService.KEY_ACTION).orEmpty())
         }.getOrElse { throw IllegalArgumentException("model_action_invalid", it) }
@@ -156,6 +189,7 @@ internal class IsolatedQwen3VlRuntime(
 
     private suspend fun ensureBound() {
         check(!closed) { "native_process_proxy_closed" }
+        check(!recoveryDisabled) { "native_process_recovery_budget_exhausted" }
         synchronized(lock) {
             if (!bound) {
                 val intent = Intent(appContext, NativeInferenceProcessService::class.java)
@@ -200,16 +234,31 @@ internal class IsolatedQwen3VlRuntime(
 
     private fun terminateRemoteProcess(reason: String) {
         val pid = remotePid
+        val now = SystemClock.elapsedRealtime()
+        val age = inferenceStartedAtMillis?.let { (now - it).coerceAtLeast(0L) } ?: config.inferenceTimeoutMillis
+        val action = NativeProcessRecoveryPolicy.evaluate(
+            processAlive = pid > 0,
+            inferenceAgeMillis = age,
+            restartCount = restartCount,
+            nowMillis = now,
+            lastRestartAtMillis = lastRestartAtMillis,
+            stuckAfterMillis = config.inferenceTimeoutMillis
+        )
         ready = false
-        AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
-        if (pid > 0 && pid != Process.myPid()) {
-            // Same-UID child process only. This is the recovery boundary for uninterruptible JNI.
+        if (action == NativeProcessRecoveryPolicy.Action.TERMINATE_PROCESS && pid != Process.myPid()) {
+            // Kill only the dedicated same-UID process; never clear the in-flight JNI ownership locally.
+            AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_TERMINATING")
             Process.killProcess(pid)
             AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_KILLED")
         } else {
-            AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_PID_UNKNOWN_FAIL_CLOSED")
+            recoveryDisabled = action == NativeProcessRecoveryPolicy.Action.FAIL_CLOSED ||
+                pid <= 0 || pid == Process.myPid()
+            AiRuntimeDashboardStatus.setNativeProcessState("PROCESS_RECOVERY_FAIL_CLOSED")
         }
-        android.util.Log.w("SmartAdSkipQwen", "native_process_watchdog reason=$reason pid=$pid")
+        android.util.Log.w(
+            "SmartAdSkipQwen",
+            "native_process_watchdog action=$action reason=$reason pid=$pid native_elapsed_ms=$age restart_count=$restartCount"
+        )
     }
 
     private fun failPending(reason: String) {
