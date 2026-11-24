@@ -2,13 +2,9 @@ package com.kenznguyen.smartadskip.ai
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.util.concurrent.SynchronousQueue
-import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.RejectedExecutionException
+import java.io.File
+import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.serialization.json.Json
@@ -16,7 +12,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.io.File
 
 internal object NativeQwen3Vl {
     init { System.loadLibrary("smartadskip_qwen") }
@@ -25,10 +20,6 @@ internal object NativeQwen3Vl {
     external fun close()
 }
 
-/**
- * Runtime tuning is explicit and validated. Defaults are conservative starting values,
- * not device-specific claims; benchmark on the target phone before increasing them.
- */
 data class Qwen3VlRuntimeConfig(
     val cpuThreads: Int = 2,
     val contextSize: Int = 2048,
@@ -48,42 +39,34 @@ data class Qwen3VlRuntimeConfig(
 class LlamaCppQwen3VlRuntime(
     private val config: Qwen3VlRuntimeConfig = Qwen3VlRuntimeConfig()
 ) : Qwen3VlRuntime, AutoCloseable {
+    private val lifecycle = NativeRuntimeLifecycle()
     @Volatile private var ready = false
-    override val isModelReady: Boolean get() = ready
+    override val isModelReady: Boolean
+        get() = ready && lifecycle.state == NativeRuntimeLifecycle.State.READY
 
-    suspend fun load(modelFile: File, projectorFile: File) = withContext(Dispatchers.IO) {
+    suspend fun load(modelFile: File, projectorFile: File) {
         require(modelFile.isFile && projectorFile.isFile) { "qwen_model_files_missing" }
-        ready = NativeQwen3Vl.load(
-            modelFile.absolutePath,
-            projectorFile.absolutePath,
-            config.cpuThreads,
-            config.contextSize,
-            config.batchSize
-        )
-        check(ready) { "qwen_native_runtime_load_failed" }
+        lifecycle.load {
+            check(
+                NativeQwen3Vl.load(
+                    modelFile.absolutePath,
+                    projectorFile.absolutePath,
+                    config.cpuThreads,
+                    config.contextSize,
+                    config.batchSize
+                )
+            ) { "qwen_native_runtime_load_failed" }
+        }.awaitResult()
+        ready = lifecycle.state == NativeRuntimeLifecycle.State.READY
+        check(ready) { "qwen_native_runtime_closed_during_load" }
     }
 
-    override suspend fun infer(context: AdFrameContext): Qwen3VlOutput =
-        suspendCancellableCoroutine { continuation ->
-            // A synchronous JNI call cannot be interrupted safely. Run it outside the
-            // caller coroutine so timeout returns immediately; a late result is discarded.
-            // SynchronousQueue rejects overlapping work instead of accumulating stale frames.
-            try {
-                INFERENCE_EXECUTOR.execute {
-                    try {
-                        val result = inferBlocking(context)
-                        if (continuation.isActive) continuation.resume(result)
-                    } catch (error: Throwable) {
-                        if (continuation.isActive) continuation.resumeWithException(error)
-                    }
-                }
-            } catch (_: RejectedExecutionException) {
-                continuation.resumeWithException(IllegalStateException("qwen_inference_busy"))
-            }
-        }
+    override suspend fun infer(context: AdFrameContext): Qwen3VlOutput {
+        check(isModelReady) { "qwen3_vl_not_ready" }
+        return lifecycle.infer { inferBlocking(context) }.awaitResult()
+    }
 
     private fun inferBlocking(context: AdFrameContext): Qwen3VlOutput {
-        check(ready) { "qwen3_vl_not_ready" }
         val decoded = BitmapFactory.decodeByteArray(context.imageJpeg, 0, context.imageJpeg.size)
             ?: throw IllegalArgumentException("screenshot_decode_failed")
         val scale = minOf(1f, config.maxImageEdge.toFloat() / maxOf(decoded.width, decoded.height))
@@ -114,7 +97,7 @@ class LlamaCppQwen3VlRuntime(
             val top = (bounds.top * imageScale).toInt()
             val right = (bounds.right * imageScale).toInt()
             val bottom = (bounds.bottom * imageScale).toInt()
-            """{"id":${JsonPrimitive(element.id)},"bounds":[$left,$top,$right,$bottom],"clickable":${element.clickable},"description":${JsonPrimitive(element.description?.take(MAX_DESCRIPTION_LENGTH).orEmpty())}}"""
+            """{"id":\${JsonPrimitive(element.id)},"bounds":[$left,$top,$right,$bottom],"clickable":\${element.clickable},"description":\${JsonPrimitive(element.description?.take(MAX_DESCRIPTION_LENGTH).orEmpty())}}"""
         }
         return """
             Inspect this Fruit Blast screen and choose exactly one action for the ad UI.
@@ -128,20 +111,30 @@ class LlamaCppQwen3VlRuntime(
         """.trimIndent()
     }
 
+    /** Native destruction is always serialized off the caller (including Android Main) thread. */
     override fun close() {
         ready = false
-        runCatching { NativeQwen3Vl.close() }
+        lifecycle.close { NativeQwen3Vl.close() }
     }
 
     private companion object {
         const val MAX_DESCRIPTION_LENGTH = 96
-        val INFERENCE_EXECUTOR = ThreadPoolExecutor(
-            1, 1, 0L, TimeUnit.MILLISECONDS, SynchronousQueue()
-        ) { runnable ->
-            Thread(runnable, "qwen3vl-inference").apply { isDaemon = true }
-        }.apply { rejectedExecutionHandler = ThreadPoolExecutor.AbortPolicy() }
     }
 }
+
+private suspend fun <T> CompletableFuture<T>.awaitResult(): T =
+    suspendCancellableCoroutine { continuation ->
+        whenComplete { value, failure ->
+            if (continuation.isActive) {
+                if (failure != null) {
+                    continuation.resumeWithException(failure.cause ?: failure)
+                } else {
+                    @Suppress("UNCHECKED_CAST")
+                    continuation.resume(value as T)
+                }
+            }
+        }
+    }
 
 object Qwen3VlOutputParser {
     fun parse(rawOutput: String): Qwen3VlOutput {
