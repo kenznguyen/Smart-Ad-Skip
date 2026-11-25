@@ -13,14 +13,14 @@ class AdMonitoringPolicyTest {
         assertEquals(1_000L, policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = true) ?: -1L)
         assertEquals(2_000L, policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = true) ?: -1L)
         assertEquals(4_000L, policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = true) ?: -1L)
-        assertNull(policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = true) ?: -1L)
+        assertNull(policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = true))
     }
 
     @Test fun doesNotScheduleForUnknownAdOrNonTargetForeground() {
         val policy = AdMonitoringPolicy()
 
-        assertNull(policy.nextDelayMillis(isTargetForeground = false, isKnownAdState = true) ?: -1L)
-        assertNull(policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = false) ?: -1L)
+        assertNull(policy.nextDelayMillis(isTargetForeground = false, isKnownAdState = true))
+        assertNull(policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = false))
         assertEquals(1_500L, policy.nextDelayMillis(isTargetForeground = true, isKnownAdState = true) ?: -1L)
     }
 
@@ -39,7 +39,7 @@ class AdMonitoringPolicyTest {
         val policy = AdMonitoringPolicy(maxCycles = 1)
 
         assertTrue(policy.hasRemainingCycles)
-        policy.nextDelayMillis(true, true) ?: -1L
+        policy.nextDelayMillis(true, true)
         assertFalse(policy.hasRemainingCycles)
     }
 }
