@@ -1184,16 +1184,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             val targetValid = packageName == TARGET_PACKAGE &&
                 validateForegroundWindow(TARGET_PACKAGE).isValid
             val decision = misclickRecoveryPolicy.onWindowObserved(packageName, targetValid)
-            val shouldResume = decision == MisclickRecoveryPolicy.Decision.TARGET_CONFIRMED
+            val targetReturned = decision == MisclickRecoveryPolicy.Decision.TARGET_CONFIRMED
             if (handleMisclickRecoveryDecision(decision)) return@Runnable
-            if (shouldResume) {
-                processAccessibilityEvent(
-                    AccessibilityEventObservation(
-                        eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-                        className = null,
-                        packageName = TARGET_PACKAGE
-                    )
-                )
+            if (targetReturned) {
+                // Do not synthesize an Activity identity from a null class name.
+                // The next genuine window-state event must identify the resumed
+                // Fruit Blast Activity before ad monitoring can restart.
+                Log.i(TAG, "misclick_recovery target_verified=true awaiting_fresh_window_event=true")
             }
         }
         misclickRecoveryCheck = check
