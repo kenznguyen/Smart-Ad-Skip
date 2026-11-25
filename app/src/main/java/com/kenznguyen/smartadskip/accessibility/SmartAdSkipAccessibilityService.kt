@@ -1,6 +1,7 @@
 package com.kenznguyen.smartadskip.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.graphics.Color
@@ -98,6 +99,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        enableInteractiveWindowRetrieval()
         serviceGeneration = aiServiceLifecycleGate.connect()
         if (serviceScope.coroutineContext[Job]?.isActive != true) {
             serviceScope = newServiceScope()
@@ -128,6 +130,20 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 val adState = if (fresh) state.name else "UNKNOWN · STALE"
                 "Monitor: CONNECTED\nAd state: $adState\nPackage: ${snapshot?.packageName ?: "—"}"
             }.collect { overlayStatus?.text = it }
+        }
+    }
+
+    private fun enableInteractiveWindowRetrieval() {
+        runCatching {
+            val configured = serviceInfo
+            val originalFlags = configured.flags
+            configured.flags = originalFlags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            setServiceInfo(configured)
+            val effectiveFlags = serviceInfo.flags
+            val enabled = effectiveFlags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS != 0
+            Log.i(TAG, "interactive_windows_capability configured=true enabled=$enabled flags=$effectiveFlags")
+        }.onFailure {
+            Log.w(TAG, "interactive_windows_capability configured=false enabled=false error=${it.javaClass.simpleName}")
         }
     }
 
@@ -179,7 +195,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 return
             }
         }
-        if (!foreground.isValid) {
+        if (!foreground.isCaptureValid) {
             Log.d(TAG, "foreground_window_rejected stage=event reason=${foreground.status.name.lowercase()}")
             return
         }
@@ -433,9 +449,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
 
         val rootPackage = runCatching { root.packageName?.toString() }.getOrNull()
         val rootWindowId = runCatching { root.windowId }.getOrNull()
-        val windowList = runCatching { windows }.getOrDefault(emptyList())
-        // rootInActiveWindow and windows[] are separate framework snapshots. Match the
-        // actual active window, not merely whichever window happens to share root.windowId.
+        val windowsResult = runCatching { windows }
+        val windowList = windowsResult.getOrDefault(emptyList())
+        val windowsSnapshotAvailable = windowsResult.isSuccess && windowList.isNotEmpty()
+        // rootInActiveWindow and getWindows() are independent framework snapshots.
+        // MIUI may return no interactive windows even while the active root is valid.
         val activeWindow = windowList.firstOrNull { runCatching { it.isActive }.getOrDefault(false) }
         val activeRoot = runCatching { activeWindow?.root }.getOrNull()
         val activePackage = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
@@ -451,7 +469,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             activeWindowType = activeType,
             applicationWindowType = AccessibilityWindowInfo.TYPE_APPLICATION,
             activeWindowIsActive = activeWindow?.isActive == true,
-            serviceConnected = connected
+            serviceConnected = connected,
+            windowsSnapshotAvailable = windowsSnapshotAvailable
         )
         val windowSummary = windowList.joinToString(";") { window ->
             val windowRoot = runCatching { window.root }.getOrNull()
@@ -459,7 +478,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             runCatching { windowRoot?.recycle() }
             "id=${window.id},type=${window.type},active=${window.isActive},focused=${window.isFocused},pkg=$packageName"
         }
-        Log.d(TAG, "foreground_window_diagnostic status=${result.status.name.lowercase()} expected=$expectedPackage snapshot=$snapshotPackage root_pkg=$rootPackage root_window_id=$rootWindowId active_window_id=$activeId active_pkg=$activePackage active_type=$activeType windows=[$windowSummary]")
+        val retrieval = when {
+            windowsResult.isFailure -> "failed"
+            windowList.isEmpty() -> "empty"
+            else -> "available"
+        }
+        Log.d(TAG, "root_active_snapshot retrieval=success present=true package=$rootPackage window_id=$rootWindowId")
+        Log.d(TAG, "interactive_windows_snapshot retrieval=$retrieval count=${windowList.size} active_count=${windowList.count { runCatching { it.isActive }.getOrDefault(false) }}")
+        Log.d(TAG, "foreground_window_diagnostic status=${result.status.name.lowercase()} capture_valid=${result.isCaptureValid} click_valid=${result.isValid} expected=$expectedPackage snapshot=$snapshotPackage root_pkg=$rootPackage root_window_id=$rootWindowId active_window_id=$activeId active_pkg=$activePackage active_type=$activeType windows=[$windowSummary]")
         windowList.forEach { runCatching { it.recycle() } }
         runCatching { activeRoot?.recycle() }
         runCatching { root.recycle() }
@@ -488,7 +514,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             return
         }
         val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
-        if (!foreground.isValid) {
+        if (!foreground.isCaptureValid) {
             logDeny("foreground_window", foreground.status.name.lowercase())
             return
         }
@@ -555,7 +581,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             }
                             try {
                                 val foreground = validateForegroundWindow(snapshot.packageName.orEmpty())
-                                if (!foreground.isValid) {
+                                if (!foreground.isCaptureValid) {
                                     logDeny("foreground_window", "capture_callback_${foreground.status.name.lowercase()}")
                                     return
                                 }
