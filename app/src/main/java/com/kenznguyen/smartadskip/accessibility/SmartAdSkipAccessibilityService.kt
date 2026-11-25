@@ -894,6 +894,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             val action = when (decision.action) {
                                 AdAction.NEXT_AD -> VisualActionType.NEXT_AD
                                 AdAction.CLOSE -> VisualActionType.CLOSE
+                                AdAction.CONTINUE -> VisualActionType.CONTINUE
                                 AdAction.WAIT -> null
                             }
                             if (targetNode == null || action == null) {
@@ -966,7 +967,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             snapshot,
             System.currentTimeMillis(),
             previous,
-            hasDetectedAction = true
+            hasDetectedAction = true,
+            hasDetectedContinueAction = action == VisualActionType.CONTINUE
         )
         AdDetectionRepository.publish(detectedState)
         attemptAuthorizedLiveClick(snapshot, targetNode, action, detectedState, requestId)
@@ -1092,7 +1094,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             val liveSafetyAction = when (action) {
                 VisualActionType.NEXT_AD -> AdAction.NEXT_AD
                 VisualActionType.CLOSE -> AdAction.CLOSE
-                else -> AdAction.WAIT
+                VisualActionType.CONTINUE -> AdAction.CONTINUE
+                VisualActionType.UNKNOWN -> AdAction.WAIT
             }
             if (!autonomousTargetSafetyPolicy.canExecute(liveMetadata[selectedIndex], liveSafetyAction)) {
                 logDeny("live_accessibility", "live_target_safety_veto")
@@ -1336,6 +1339,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         const val ACCESSIBILITY_EVENT_DEBOUNCE_MILLIS = 120L
         const val MISCLICK_RECOVERY_CHECK_DELAY_MILLIS = 750L
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
-        val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
+        val APPROVED_ACTIONS = setOf(
+            VisualActionType.NEXT_AD,
+            VisualActionType.CLOSE,
+            VisualActionType.CONTINUE
+        )
     }
 }
