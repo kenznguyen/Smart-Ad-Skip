@@ -40,6 +40,13 @@ class ActionExecutionPolicyTest {
     }
 
     @Test
+    fun gameHomeIsNeverAnActionableAdState() {
+        assertFalse(policy.canClick(AdState.GAME_HOME, VisualActionType.NEXT_AD))
+        assertFalse(policy.canClick(AdState.GAME_HOME, VisualActionType.CLOSE))
+        assertFalse(policy.canClick(AdState.GAME_HOME, VisualActionType.CONTINUE))
+    }
+
+    @Test
     fun allowsOnlyExplicitlyConfirmedAdStates() {
         assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.NEXT_AD))
         assertFalse(policy.canClick(AdState.AD_COMPLETED, VisualActionType.CLOSE))
