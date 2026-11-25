@@ -7,6 +7,7 @@ enum class AdState {
     SKIP_AVAILABLE,
     AD_PAUSED,
     AD_COMPLETED,
+    GAME_HOME,
     UNKNOWN
 }
 
@@ -48,6 +49,10 @@ class AdStateClassifier(
             previous.structuralNodes.isNotEmpty() &&
             isKnownAdSdkActivity(previous.activityClassName)
         ) return AdState.AD_COMPLETED
+
+        if (current.activityClassName == FRUIT_BLAST_MAIN_ACTIVITY) {
+            return AdState.GAME_HOME
+        }
         return AdState.UNKNOWN
     }
 
@@ -61,12 +66,14 @@ class AdStateClassifier(
 
     private companion object {
         const val TARGET_APP_PACKAGE = "com.funnyvideo.cgame.fruitblast"
+        const val FRUIT_BLAST_MAIN_ACTIVITY = "com.funnyvideo.cgame.fruitblast.MainActivity"
         val AD_SDK_ACTIVITY_CLASSES = setOf(
             "com.mbridge.msdk.reward.player.MBRewardVideoActivity",
             "com.google.android.gms.ads.AdActivity",
             "com.unity3d.services.ads.adunit.AdUnitActivity",
             "com.applovin.adview.AppLovinFullscreenActivity",
-            "com.facebook.ads.AudienceNetworkActivity"
+            "com.facebook.ads.AudienceNetworkActivity",
+            "com.bytedance.sdk.openadsdk.activity.TTRewardExpressVideoActivity"
         )
     }
 }
