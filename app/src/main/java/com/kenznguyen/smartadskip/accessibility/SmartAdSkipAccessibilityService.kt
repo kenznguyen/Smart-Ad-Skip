@@ -461,9 +461,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val rootWindowId = runCatching { root.windowId }.getOrNull()
         val windowsResult = runCatching { windows }
         val windowList = windowsResult.getOrDefault(emptyList())
-        val windowsSnapshotAvailable = windowsResult.isSuccess && windowList.isNotEmpty()
-        // rootInActiveWindow and getWindows() are independent framework snapshots.
-        // MIUI may return no interactive windows even while the active root is valid.
+        val windowsSnapshotStatus = when {
+            windowsResult.isFailure -> ForegroundWindowValidationPolicy.WindowsSnapshotStatus.FAILED
+            windowList.isEmpty() -> ForegroundWindowValidationPolicy.WindowsSnapshotStatus.EMPTY
+            else -> ForegroundWindowValidationPolicy.WindowsSnapshotStatus.AVAILABLE
+        }
+        // Only a confirmed empty result may use root-only capture fallback.
+        // A framework exception is not evidence that the window list is merely empty.
         val activeWindow = windowList.firstOrNull { runCatching { it.isActive }.getOrDefault(false) }
         val activeRoot = runCatching { activeWindow?.root }.getOrNull()
         val activePackage = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
@@ -480,7 +484,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             applicationWindowType = AccessibilityWindowInfo.TYPE_APPLICATION,
             activeWindowIsActive = activeWindow?.isActive == true,
             serviceConnected = connected,
-            windowsSnapshotAvailable = windowsSnapshotAvailable
+            windowsSnapshotStatus = windowsSnapshotStatus
         )
         val windowSummary = windowList.joinToString(";") { window ->
             val windowRoot = runCatching { window.root }.getOrNull()
