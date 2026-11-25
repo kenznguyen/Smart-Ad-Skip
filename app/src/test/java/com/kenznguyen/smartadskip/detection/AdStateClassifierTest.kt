@@ -79,10 +79,25 @@ class AdStateClassifierTest {
     }
 
     @Test
+    fun tiktokRewardActivityEstablishesAdPlaying() {
+        val current = snapshot(nodes = listOf(node(null)))
+            .copy(activityClassName = "com.bytedance.sdk.openadsdk.activity.TTRewardExpressVideoActivity")
+        assertEquals(AdState.AD_PLAYING, classifier.classify(current, now))
+    }
+
+    @Test
+    fun verifiedFruitBlastMainActivityIsGameHomeAndNeverAdContext() {
+        val current = snapshot(nodes = listOf(node(null)))
+            .copy(activityClassName = "com.funnyvideo.cgame.fruitblast.MainActivity")
+        assertEquals(AdState.GAME_HOME, classifier.classify(current, now))
+    }
+
+    @Test
     fun sdkActivityTransitionToHostWindowProvesAdCompleted() {
         val previous = snapshot(nodes = listOf(node(null)), timestamp = now - 1_000L)
             .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
         val current = snapshot(nodes = listOf(node(null)))
+            .copy(activityClassName = "com.funnyvideo.cgame.fruitblast.MainActivity")
         assertEquals(AdState.AD_COMPLETED, classifier.classify(current, now, previous))
     }
 
