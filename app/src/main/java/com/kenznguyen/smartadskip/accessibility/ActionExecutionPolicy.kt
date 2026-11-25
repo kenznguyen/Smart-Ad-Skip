@@ -13,7 +13,7 @@ class ActionExecutionPolicy {
                 detectedAction in PLAYING_ACTIONS
             AdState.AD_PAUSED ->
                 detectedAction == VisualActionType.CONTINUE
-            AdState.AD_COMPLETED, AdState.UNKNOWN -> false
+            AdState.AD_COMPLETED, AdState.GAME_HOME, AdState.UNKNOWN -> false
         }
 
     private companion object {
