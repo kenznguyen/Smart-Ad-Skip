@@ -15,7 +15,7 @@ class ForegroundWindowValidationPolicyTest {
         activeWindowType: Int? = APPLICATION,
         activeWindowIsActive: Boolean = true,
         serviceConnected: Boolean = true,
-        windowsSnapshotAvailable: Boolean = true
+        windowsSnapshotStatus: ForegroundWindowValidationPolicy.WindowsSnapshotStatus = ForegroundWindowValidationPolicy.WindowsSnapshotStatus.AVAILABLE
     ) = ForegroundWindowValidationPolicy.evaluate(
         expectedPackage = TARGET,
         snapshotPackage = snapshotPackage,
@@ -27,7 +27,7 @@ class ForegroundWindowValidationPolicyTest {
         applicationWindowType = APPLICATION,
         activeWindowIsActive = activeWindowIsActive,
         serviceConnected = serviceConnected,
-        windowsSnapshotAvailable = windowsSnapshotAvailable
+        windowsSnapshotStatus = windowsSnapshotStatus
     )
 
     @Test fun acceptsOnlyTheCurrentActiveTargetApplicationWindow() {
@@ -58,15 +58,22 @@ class ForegroundWindowValidationPolicyTest {
     }
 
 
-    @Test fun allowsCaptureButNeverClickWhenTargetRootIsValidAndWindowListUnavailable() {
-        val result = evaluate(windowsSnapshotAvailable = false)
+    @Test fun allowsCaptureButNeverClickWhenTargetRootIsValidAndWindowListIsConfirmedEmpty() {
+        val result = evaluate(windowsSnapshotStatus = ForegroundWindowValidationPolicy.WindowsSnapshotStatus.EMPTY)
         assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_VERIFIED_WINDOWS_UNAVAILABLE, result.status)
         assertTrue(result.isCaptureValid)
         assertFalse(result.isValid)
     }
 
+    @Test fun rejectsCaptureWhenInteractiveWindowRetrievalFails() {
+        val result = evaluate(windowsSnapshotStatus = ForegroundWindowValidationPolicy.WindowsSnapshotStatus.FAILED)
+        assertEquals(ForegroundWindowValidationPolicy.Status.WINDOW_SNAPSHOT_FAILED, result.status)
+        assertFalse(result.isCaptureValid)
+        assertFalse(result.isValid)
+    }
+
     @Test fun rejectsAnotherForegroundPackageEvenWhenWindowListIsUnavailable() {
-        val result = evaluate(rootPackage = "com.android.systemui", windowsSnapshotAvailable = false)
+        val result = evaluate(rootPackage = "com.android.systemui", windowsSnapshotStatus = ForegroundWindowValidationPolicy.WindowsSnapshotStatus.EMPTY)
         assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_PACKAGE_MISMATCH, result.status)
         assertFalse(result.isCaptureValid)
         assertFalse(result.isValid)
