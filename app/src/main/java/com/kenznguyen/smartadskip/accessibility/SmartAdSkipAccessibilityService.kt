@@ -401,7 +401,6 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             )
             Log.i(TAG, "foreground_transition event_type=${observation.eventType} event_pkg=${observation.packageName} event_class=${observation.className} root_pkg=$rootPackage root_window_id=$rootWindowId active_window_id=${activeWindow?.id} active_pkg=$activePackage active_type=${activeWindow?.type} role=$role validation=${validation.status.name.lowercase()}")
         }
-        runCatching { activeRoot?.recycle() }
         windowList.forEach { runCatching { it.recycle() } }
         runCatching { activeRoot?.recycle() }
         runCatching { root?.recycle() }
@@ -1105,7 +1104,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 processAccessibilityEvent(
                     AccessibilityEventObservation(
                         eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-                        className = null
+                        className = null,
+                        packageName = TARGET_PACKAGE
                     )
                 )
             }
