@@ -1109,6 +1109,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 false
             }
             if (clicked) {
+                adMonitoringPolicy.reset()
                 misclickRecoveryPolicy.onClickDispatched()
                 scheduleMisclickRecoveryCheck()
                 Log.i(TAG, "click_dispatched action=$action source_live_accessibility=true recovery_back_limit=2")
