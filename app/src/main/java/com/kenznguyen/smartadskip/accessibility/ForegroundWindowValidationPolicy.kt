@@ -27,7 +27,7 @@ internal object ForegroundWindowValidationPolicy {
     ): Result {
         if (!serviceConnected) return Result(Status.SERVICE_DISCONNECTED)
         if (snapshotPackage != expectedPackage) return Result(Status.SNAPSHOT_PACKAGE_MISMATCH)
-        if (rootWindowId == null || rootPackage == null) return Result(Status.ROOT_MISSING)
+        if (rootWindowId == null || rootWindowId < 0 || rootPackage == null) return Result(Status.ROOT_MISSING)
         if (rootPackage != expectedPackage) return Result(Status.ROOT_PACKAGE_MISMATCH)
         // rootInActiveWindow is the active-window root API. When OEM firmware returns
         // an empty/unavailable getWindows() snapshot, allow capture only from this
