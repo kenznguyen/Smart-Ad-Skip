@@ -1,10 +1,12 @@
 package com.kenznguyen.smartadskip.accessibility
 
 internal object ForegroundWindowValidationPolicy {
+    enum class WindowsSnapshotStatus { AVAILABLE, EMPTY, FAILED }
+
     enum class Status {
         VALID, ROOT_VERIFIED_WINDOWS_UNAVAILABLE, SERVICE_DISCONNECTED, SNAPSHOT_PACKAGE_MISMATCH, ROOT_MISSING,
         ROOT_PACKAGE_MISMATCH, ACTIVE_WINDOW_MISSING, WINDOW_ID_MISMATCH,
-        WINDOW_PACKAGE_MISMATCH, NON_APPLICATION_WINDOW, WINDOW_NOT_ACTIVE
+        WINDOW_PACKAGE_MISMATCH, NON_APPLICATION_WINDOW, WINDOW_NOT_ACTIVE, WINDOW_SNAPSHOT_FAILED
     }
 
     data class Result(val status: Status) {
@@ -23,7 +25,7 @@ internal object ForegroundWindowValidationPolicy {
         applicationWindowType: Int,
         activeWindowIsActive: Boolean,
         serviceConnected: Boolean,
-        windowsSnapshotAvailable: Boolean = true
+        windowsSnapshotStatus: WindowsSnapshotStatus = WindowsSnapshotStatus.AVAILABLE
     ): Result {
         if (!serviceConnected) return Result(Status.SERVICE_DISCONNECTED)
         if (snapshotPackage != expectedPackage) return Result(Status.SNAPSHOT_PACKAGE_MISMATCH)
@@ -32,7 +34,8 @@ internal object ForegroundWindowValidationPolicy {
         // rootInActiveWindow is the active-window root API. When OEM firmware returns
         // an empty/unavailable getWindows() snapshot, allow capture only from this
         // verified target root; isValid remains false so click authorization stays strict.
-        if (!windowsSnapshotAvailable) return Result(Status.ROOT_VERIFIED_WINDOWS_UNAVAILABLE)
+        if (windowsSnapshotStatus == WindowsSnapshotStatus.FAILED) return Result(Status.WINDOW_SNAPSHOT_FAILED)
+        if (windowsSnapshotStatus == WindowsSnapshotStatus.EMPTY) return Result(Status.ROOT_VERIFIED_WINDOWS_UNAVAILABLE)
         if (activeWindowId == null || activeWindowType == null) return Result(Status.ACTIVE_WINDOW_MISSING)
         if (activeWindowId != rootWindowId) return Result(Status.WINDOW_ID_MISMATCH)
         if (activeWindowPackage != expectedPackage) return Result(Status.WINDOW_PACKAGE_MISMATCH)
