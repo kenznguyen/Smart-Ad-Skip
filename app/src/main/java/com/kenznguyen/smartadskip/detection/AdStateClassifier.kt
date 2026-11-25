@@ -5,6 +5,7 @@ import com.kenznguyen.smartadskip.accessibility.AccessibilitySnapshot
 enum class AdState {
     AD_PLAYING,
     SKIP_AVAILABLE,
+    AD_PAUSED,
     AD_COMPLETED,
     UNKNOWN
 }
@@ -12,7 +13,7 @@ enum class AdState {
 /**
  * Conservative Fruit Blast ad-context classifier.
  * Only Activity identity captured from a window-state event can establish SDK ad context.
- * Source-view/window class names, resource IDs and labels are never treated as Activity identity.
+ * A paused state requires an explicit CONTINUE decision from the AI for that exact frame.
  */
 class AdStateClassifier(
     private val staleAfterMillis: Long = 15_000L,
@@ -25,14 +26,19 @@ class AdStateClassifier(
         current: AccessibilitySnapshot,
         nowEpochMillis: Long,
         previous: AccessibilitySnapshot? = null,
-        hasDetectedAction: Boolean = false
+        hasDetectedAction: Boolean = false,
+        hasDetectedContinueAction: Boolean = false
     ): AdState {
         if (!isRelevantPackage(current.packageName)) return AdState.UNKNOWN
         if (!isFresh(current.observedAtEpochMillis, nowEpochMillis)) return AdState.UNKNOWN
         if (current.structuralNodes.isEmpty()) return AdState.UNKNOWN
 
         if (isKnownAdSdkActivity(current.activityClassName)) {
-            return if (hasDetectedAction) AdState.SKIP_AVAILABLE else AdState.AD_PLAYING
+            return when {
+                hasDetectedContinueAction -> AdState.AD_PAUSED
+                hasDetectedAction -> AdState.SKIP_AVAILABLE
+                else -> AdState.AD_PLAYING
+            }
         }
         if (previous != null &&
             previous.packageName == current.packageName &&
@@ -42,7 +48,6 @@ class AdStateClassifier(
             previous.structuralNodes.isNotEmpty() &&
             isKnownAdSdkActivity(previous.activityClassName)
         ) return AdState.AD_COMPLETED
-
         return AdState.UNKNOWN
     }
 
