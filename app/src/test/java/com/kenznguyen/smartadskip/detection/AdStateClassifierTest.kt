@@ -24,6 +24,25 @@ class AdStateClassifierTest {
     }
 
     @Test
+    fun continueDecisionEstablishesPausedStateOnlyInsideKnownAdActivity() {
+        val current = snapshot(nodes = listOf(node(null, clickable = true)))
+            .copy(activityClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
+        assertEquals(
+            AdState.AD_PAUSED,
+            classifier.classify(current, now, hasDetectedAction = true, hasDetectedContinueAction = true)
+        )
+    }
+
+    @Test
+    fun continueDecisionCannotEstablishPausedStateWithoutKnownAdActivity() {
+        val current = snapshot(nodes = listOf(node(null, clickable = true)))
+        assertEquals(
+            AdState.UNKNOWN,
+            classifier.classify(current, now, hasDetectedAction = true, hasDetectedContinueAction = true)
+        )
+    }
+
+    @Test
     fun sourceViewClassCannotEstablishAdContextWithoutActivityIdentity() {
         val current = snapshot(nodes = listOf(node(null)))
             .copy(windowClassName = "com.mbridge.msdk.reward.player.MBRewardVideoActivity")
