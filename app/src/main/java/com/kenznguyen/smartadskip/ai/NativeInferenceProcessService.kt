@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Owns every llama.cpp/JNI object in the dedicated :qwen_native process. */
 class NativeInferenceProcessService : Service() {
@@ -23,6 +24,7 @@ class NativeInferenceProcessService : Service() {
     // Debug-only deterministic fault injection; never enabled in release builds.
     private var instrumentationHangFrameId: Long? = null
     private var instrumentationObserver: Messenger? = null
+    private var instrumentationLifecycle: NativeRuntimeLifecycle? = null
     private val processSessionId = UUID.randomUUID().toString()
 
     override fun onCreate() {
@@ -58,9 +60,13 @@ class NativeInferenceProcessService : Service() {
                     if (enableInstrumentationFault) {
                         instrumentationHangFrameId = request.getLong(KEY_TEST_HANG_FRAME_ID)
                         instrumentationObserver = request.getParcelable(KEY_TEST_OBSERVER) as? Messenger
+                        instrumentationLifecycle = NativeRuntimeLifecycle().also {
+                            it.load { }.get(5, TimeUnit.SECONDS)
+                        }
                     } else {
                         instrumentationHangFrameId = null
                         instrumentationObserver = null
+                        instrumentationLifecycle = null
                         val config = Qwen3VlRuntimeConfig(
                             cpuThreads = request.getInt(KEY_THREADS),
                             contextSize = request.getInt(KEY_CONTEXT),
@@ -84,22 +90,34 @@ class NativeInferenceProcessService : Service() {
                     val frameId = request.getLong(KEY_FRAME_ID)
                     val hangFrameId = instrumentationHangFrameId
                     if (BuildConfig.DEBUG && hangFrameId != null) {
-                        if (frameId == hangFrameId) {
-                            runCatching {
-                                instrumentationObserver?.send(
-                                    Message.obtain(null, MSG_TEST_INFERENCE_STARTED).apply {
-                                        data = Bundle().apply { putLong(KEY_FRAME_ID, frameId) }
-                                    }
-                                )
-                            }
-                            // The test process watchdog must terminate this process; no native
-                            // slot is released and no synthetic reply can escape this handler.
-                            CountDownLatch(1).await()
+                        val lifecycle = checkNotNull(instrumentationLifecycle) {
+                            "instrumentation_native_lifecycle_missing"
                         }
+                        val output = lifecycle.infer(frameId) {
+                            if (frameId == hangFrameId) {
+                                runCatching {
+                                    instrumentationObserver?.send(
+                                        Message.obtain(null, MSG_TEST_INFERENCE_STARTED).apply {
+                                            data = Bundle().apply { putLong(KEY_FRAME_ID, frameId) }
+                                        }
+                                    )
+                                }
+                                // Simulate a synchronous JNI call that never returns. The real
+                                // NativeRuntimeLifecycle keeps ownership reserved until return;
+                                // the only recovery is killing this isolated process.
+                                CountDownLatch(1).await()
+                            }
+                            Qwen3VlOutput(
+                                action = AdAction.WAIT,
+                                confidence = 1.0f,
+                                rationale = "test_frame_id=$frameId"
+                            )
+                        }.get()
                         response.putString(KEY_STATUS, STATUS_OK)
-                        response.putString(KEY_ACTION, AdAction.WAIT.name)
-                        response.putFloat(KEY_CONFIDENCE, 1.0f)
-                        response.putString(KEY_RATIONALE, "test_frame_id=$frameId")
+                        response.putString(KEY_ACTION, output.action.name)
+                        response.putString(KEY_TARGET, output.targetElementId)
+                        response.putFloat(KEY_CONFIDENCE, output.confidence)
+                        response.putString(KEY_RATIONALE, output.rationale)
                         response.putString(KEY_NATIVE_STATE, "READY")
                     } else {
                         val active = runtime ?: error("native_runtime_not_loaded")
@@ -135,6 +153,8 @@ class NativeInferenceProcessService : Service() {
                 MSG_CLOSE -> {
                     runtime?.close()
                     runtime = null
+                    instrumentationLifecycle?.close { }
+                    instrumentationLifecycle = null
                     response.putString(KEY_STATUS, STATUS_OK)
                     response.putString(KEY_NATIVE_STATE, "STOPPED")
                 }
@@ -154,6 +174,8 @@ class NativeInferenceProcessService : Service() {
         // Normal shutdown only. A hung JNI call is recovered by killing this process.
         runCatching { runtime?.close() }
         runtime = null
+        instrumentationLifecycle?.close { }
+        instrumentationLifecycle = null
         if (::worker.isInitialized) worker.quitSafely()
         super.onDestroy()
     }
