@@ -4,7 +4,7 @@ import com.kenznguyen.smartadskip.accessibility.StructuralNodeMetadata
 
 /**
  * Execution-only veto. CONTINUE is accepted only for explicit resume labels;
- * generic "continue"/"play now" labels remain protected for all other actions.
+ * generic promotional labels remain protected for all other actions.
  */
 class AutonomousTargetSafetyPolicy {
     fun canExecute(target: StructuralNodeMetadata, action: AdAction): Boolean {
@@ -22,7 +22,6 @@ class AutonomousTargetSafetyPolicy {
         if (action == AdAction.CONTINUE) {
             return compactLabels.any { it in CONTINUE_LABELS }
         }
-
         if (normalized.isNotEmpty()) {
             val tokens = normalized.split(Regex("\\s+")).toSet()
             if (tokens.any { it in PROTECTED_TOKENS } ||
@@ -53,7 +52,7 @@ class AutonomousTargetSafetyPolicy {
         val NEXT_SYMBOLS = setOf(">>", "»", "›", "⏭")
         val CONTINUE_LABELS = setOf(
             "continue", "continuead", "resume", "resumead", "play", "playad",
-            "continuewatching", "resumewatching", "taptoresume"
+            "continuewatching", "resumewatching", "taptopresume", "taptoresume"
         )
     }
 }
