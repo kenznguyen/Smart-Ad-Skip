@@ -433,6 +433,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val connected = aiServiceLifecycleGate.isCurrent(serviceGeneration)
         val root = runCatching { rootInActiveWindow }.getOrNull()
         if (root == null) {
+            val windowsResult = runCatching { windows }
+            val windowList = windowsResult.getOrDefault(emptyList())
+            val retrieval = when {
+                windowsResult.isFailure -> "failed"
+                windowList.isEmpty() -> "empty"
+                else -> "available"
+            }
+            Log.d(TAG, "root_active_snapshot retrieval=empty present=false")
+            Log.d(TAG, "interactive_windows_snapshot retrieval=$retrieval count=${windowList.size}")
+            windowList.forEach { runCatching { it.recycle() } }
             return ForegroundWindowValidationPolicy.evaluate(
                 expectedPackage = expectedPackage,
                 snapshotPackage = snapshotPackage,
