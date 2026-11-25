@@ -1,6 +1,7 @@
 package com.kenznguyen.smartadskip.ai
 
 import android.app.Service
+import com.kenznguyen.smartadskip.BuildConfig
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -12,12 +13,16 @@ import android.os.Process
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 
 /** Owns every llama.cpp/JNI object in the dedicated :qwen_native process. */
 class NativeInferenceProcessService : Service() {
     private lateinit var worker: HandlerThread
     private lateinit var messenger: Messenger
     private var runtime: LlamaCppQwen3VlRuntime? = null
+    // Debug-only deterministic fault injection; never enabled in release builds.
+    private var instrumentationHangFrameId: Long? = null
+    private var instrumentationObserver: Messenger? = null
     private val processSessionId = UUID.randomUUID().toString()
 
     override fun onCreate() {
@@ -46,53 +51,86 @@ class NativeInferenceProcessService : Service() {
                 }
                 MSG_LOAD -> {
                     runtime?.close()
-                    val config = Qwen3VlRuntimeConfig(
-                        cpuThreads = request.getInt(KEY_THREADS),
-                        contextSize = request.getInt(KEY_CONTEXT),
-                        batchSize = request.getInt(KEY_BATCH),
-                        maxImageEdge = request.getInt(KEY_MAX_EDGE),
-                        inferenceTimeoutMillis = request.getLong(KEY_TIMEOUT)
-                    )
-                    val next = LlamaCppQwen3VlRuntime(config)
-                    runBlocking {
-                        next.load(
-                            File(request.getString(KEY_MODEL) ?: error("model_path_missing")),
-                            File(request.getString(KEY_PROJECTOR) ?: error("projector_path_missing"))
+                    runtime = null
+                    val enableInstrumentationFault = BuildConfig.DEBUG &&
+                        applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
+                        request.getBoolean(KEY_TEST_MODE, false)
+                    if (enableInstrumentationFault) {
+                        instrumentationHangFrameId = request.getLong(KEY_TEST_HANG_FRAME_ID)
+                        instrumentationObserver = request.getParcelable(KEY_TEST_OBSERVER) as? Messenger
+                    } else {
+                        instrumentationHangFrameId = null
+                        instrumentationObserver = null
+                        val config = Qwen3VlRuntimeConfig(
+                            cpuThreads = request.getInt(KEY_THREADS),
+                            contextSize = request.getInt(KEY_CONTEXT),
+                            batchSize = request.getInt(KEY_BATCH),
+                            maxImageEdge = request.getInt(KEY_MAX_EDGE),
+                            inferenceTimeoutMillis = request.getLong(KEY_TIMEOUT)
                         )
+                        val next = LlamaCppQwen3VlRuntime(config)
+                        runBlocking {
+                            next.load(
+                                File(request.getString(KEY_MODEL) ?: error("model_path_missing")),
+                                File(request.getString(KEY_PROJECTOR) ?: error("projector_path_missing"))
+                            )
+                        }
+                        runtime = next
                     }
-                    runtime = next
                     response.putString(KEY_STATUS, STATUS_OK)
                     response.putString(KEY_NATIVE_STATE, "READY")
                 }
                 MSG_INFER -> {
-                    val active = runtime ?: error("native_runtime_not_loaded")
-                    val elements = request.getParcelableArrayList<Bundle>(KEY_ELEMENTS).orEmpty().map { item ->
-                        AdUiElement(
-                            id = item.getString(KEY_ID).orEmpty(),
-                            bounds = com.kenznguyen.smartadskip.accessibility.ScreenBounds(
-                                item.getInt(KEY_LEFT), item.getInt(KEY_TOP),
-                                item.getInt(KEY_RIGHT), item.getInt(KEY_BOTTOM)
-                            ),
-                            description = item.getString(KEY_DESCRIPTION),
-                            clickable = item.getBoolean(KEY_CLICKABLE)
+                    val frameId = request.getLong(KEY_FRAME_ID)
+                    val hangFrameId = instrumentationHangFrameId
+                    if (BuildConfig.DEBUG && hangFrameId != null) {
+                        if (frameId == hangFrameId) {
+                            runCatching {
+                                instrumentationObserver?.send(
+                                    Message.obtain(null, MSG_TEST_INFERENCE_STARTED).apply {
+                                        data = Bundle().apply { putLong(KEY_FRAME_ID, frameId) }
+                                    }
+                                )
+                            }
+                            // The test process watchdog must terminate this process; no native
+                            // slot is released and no synthetic reply can escape this handler.
+                            CountDownLatch(1).await()
+                        }
+                        response.putString(KEY_STATUS, STATUS_OK)
+                        response.putString(KEY_ACTION, AdAction.WAIT.name)
+                        response.putFloat(KEY_CONFIDENCE, 1.0f)
+                        response.putString(KEY_RATIONALE, "test_frame_id=$frameId")
+                        response.putString(KEY_NATIVE_STATE, "READY")
+                    } else {
+                        val active = runtime ?: error("native_runtime_not_loaded")
+                        val elements = request.getParcelableArrayList<Bundle>(KEY_ELEMENTS).orEmpty().map { item ->
+                            AdUiElement(
+                                id = item.getString(KEY_ID).orEmpty(),
+                                bounds = com.kenznguyen.smartadskip.accessibility.ScreenBounds(
+                                    item.getInt(KEY_LEFT), item.getInt(KEY_TOP),
+                                    item.getInt(KEY_RIGHT), item.getInt(KEY_BOTTOM)
+                                ),
+                                description = item.getString(KEY_DESCRIPTION),
+                                clickable = item.getBoolean(KEY_CLICKABLE)
+                            )
+                        }
+                        val context = AdFrameContext(
+                            packageName = request.getString(KEY_PACKAGE).orEmpty(),
+                            observedAtEpochMillis = request.getLong(KEY_OBSERVED),
+                            screenWidth = request.getInt(KEY_WIDTH),
+                            screenHeight = request.getInt(KEY_HEIGHT),
+                            imageJpeg = request.getByteArray(KEY_IMAGE) ?: error("image_missing"),
+                            elements = elements,
+                            frameId = frameId
                         )
+                        val output = runBlocking { active.infer(context) }
+                        response.putString(KEY_STATUS, STATUS_OK)
+                        response.putString(KEY_ACTION, output.action.name)
+                        response.putString(KEY_TARGET, output.targetElementId)
+                        response.putFloat(KEY_CONFIDENCE, output.confidence)
+                        response.putString(KEY_RATIONALE, output.rationale)
+                        response.putString(KEY_NATIVE_STATE, "READY")
                     }
-                    val context = AdFrameContext(
-                        packageName = request.getString(KEY_PACKAGE).orEmpty(),
-                        observedAtEpochMillis = request.getLong(KEY_OBSERVED),
-                        screenWidth = request.getInt(KEY_WIDTH),
-                        screenHeight = request.getInt(KEY_HEIGHT),
-                        imageJpeg = request.getByteArray(KEY_IMAGE) ?: error("image_missing"),
-                        elements = elements,
-                        frameId = request.getLong(KEY_FRAME_ID)
-                    )
-                    val output = runBlocking { active.infer(context) }
-                    response.putString(KEY_STATUS, STATUS_OK)
-                    response.putString(KEY_ACTION, output.action.name)
-                    response.putString(KEY_TARGET, output.targetElementId)
-                    response.putFloat(KEY_CONFIDENCE, output.confidence)
-                    response.putString(KEY_RATIONALE, output.rationale)
-                    response.putString(KEY_NATIVE_STATE, "READY")
                 }
                 MSG_CLOSE -> {
                     runtime?.close()
@@ -125,6 +163,10 @@ class NativeInferenceProcessService : Service() {
         const val MSG_LOAD = 1
         const val MSG_INFER = 2
         const val MSG_CLOSE = 3
+        const val MSG_TEST_INFERENCE_STARTED = 900
+        const val KEY_TEST_MODE = "instrumentation_test_mode"
+        const val KEY_TEST_HANG_FRAME_ID = "instrumentation_hang_frame_id"
+        const val KEY_TEST_OBSERVER = "instrumentation_test_observer"
         const val STATUS_OK = "ok"
         const val STATUS_ERROR = "error"
         const val KEY_STATUS = "status"

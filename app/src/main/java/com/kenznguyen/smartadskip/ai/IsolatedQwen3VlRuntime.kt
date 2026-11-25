@@ -13,6 +13,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.os.RemoteException
 import com.kenznguyen.smartadskip.accessibility.ScreenBounds
+import com.kenznguyen.smartadskip.BuildConfig
 import java.io.File
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
@@ -31,9 +32,20 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  */
 internal class IsolatedQwen3VlRuntime(
     context: Context,
-    private val config: Qwen3VlRuntimeConfig
+    private val config: Qwen3VlRuntimeConfig,
+    private val instrumentationHangFrameId: Long? = null,
+    private val instrumentationObserver: Messenger? = null
 ) : Qwen3VlRuntime, AutoCloseable {
     private val appContext = context.applicationContext
+
+    init {
+        require(instrumentationHangFrameId == null ||
+            (BuildConfig.DEBUG && appContext.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
+        ) { "native_runtime_instrumentation_hooks_require_debuggable_build" }
+        require(instrumentationHangFrameId == null || instrumentationObserver != null) {
+            "native_runtime_instrumentation_observer_required"
+        }
+    }
     private val lock = Any()
     private val operationMutex = Mutex()
     private val requestIds = AtomicInteger(1)
@@ -273,6 +285,11 @@ internal class IsolatedQwen3VlRuntime(
             putInt(NativeInferenceProcessService.KEY_BATCH, config.batchSize)
             putInt(NativeInferenceProcessService.KEY_MAX_EDGE, config.maxImageEdge)
             putLong(NativeInferenceProcessService.KEY_TIMEOUT, config.inferenceTimeoutMillis)
+            instrumentationHangFrameId?.let { frameId ->
+                putBoolean(NativeInferenceProcessService.KEY_TEST_MODE, true)
+                putLong(NativeInferenceProcessService.KEY_TEST_HANG_FRAME_ID, frameId)
+                putParcelable(NativeInferenceProcessService.KEY_TEST_OBSERVER, instrumentationObserver)
+            }
         }
         val requestGeneration = bindingGeneration
         val response = withTimeout(NativeIpcTimeoutPolicy.timeoutMillis(NativeIpcTimeoutPolicy.Request.LOAD, config.inferenceTimeoutMillis)) {
