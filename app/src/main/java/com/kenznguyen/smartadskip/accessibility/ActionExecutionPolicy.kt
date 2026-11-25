@@ -10,12 +10,14 @@ class ActionExecutionPolicy {
     fun canClick(adState: AdState, detectedAction: VisualActionType): Boolean =
         when (adState) {
             AdState.AD_PLAYING, AdState.SKIP_AVAILABLE ->
-                detectedAction in APPROVED_ACTIONS
+                detectedAction in PLAYING_ACTIONS
+            AdState.AD_PAUSED ->
+                detectedAction == VisualActionType.CONTINUE
             AdState.AD_COMPLETED, AdState.UNKNOWN -> false
         }
 
     private companion object {
-        val APPROVED_ACTIONS = setOf(
+        val PLAYING_ACTIONS = setOf(
             VisualActionType.NEXT_AD,
             VisualActionType.CLOSE
         )
