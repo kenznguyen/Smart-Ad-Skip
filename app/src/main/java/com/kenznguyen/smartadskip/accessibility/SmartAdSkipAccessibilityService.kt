@@ -196,6 +196,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val foreground = validateForegroundWindow(TARGET_PACKAGE)
         logForegroundTransition(observation, activePackageName, foreground)
         if (misclickRecoveryPolicy.isPending) {
+            if (activePackageName != TARGET_PACKAGE) stopAdMonitoringSession()
             val recoveryDecision = misclickRecoveryPolicy.onWindowObserved(
                 packageName = activePackageName,
                 targetWindowValid = activePackageName == TARGET_PACKAGE && foreground.isValid
