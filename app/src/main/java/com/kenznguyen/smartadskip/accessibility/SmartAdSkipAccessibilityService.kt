@@ -71,8 +71,10 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val screenshotCaptureThrottle = ScreenshotCaptureThrottle()
     private data class AccessibilityEventObservation(
         val eventType: Int,
-        val className: String?
+        val className: String?,
+        val packageName: String?
     )
+    private var lastForegroundTransitionKey: String? = null
     private val accessibilityEventDebouncer =
         AccessibilityEventDebouncer<AccessibilityEventObservation>(ACCESSIBILITY_EVENT_DEBOUNCE_MILLIS)
     private var accessibilityEventDebounceRunnable: Runnable? = null
@@ -135,7 +137,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         // Never retain the framework-owned AccessibilityEvent beyond this callback.
         val observation = AccessibilityEventObservation(
             eventType = event.eventType,
-            className = event.className?.toString()
+            className = event.className?.toString(),
+            packageName = event.packageName?.toString()
         )
         val isCriticalTransition = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
@@ -165,6 +168,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
         val activePackageName = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
         val foreground = validateForegroundWindow(TARGET_PACKAGE)
+        logForegroundTransition(observation, activePackageName, foreground)
         if (misclickRecoveryPolicy.isPending) {
             val recoveryDecision = misclickRecoveryPolicy.onWindowObserved(
                 packageName = activePackageName,
@@ -205,6 +209,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val priorSnapshot = previousSnapshot
         previousSnapshot = snapshot
         val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
+        Log.i(TAG, "foreground_content_classification package=$activePackageName event_class=${observation.className} window_role=application ad_state=$state")
         AdDetectionRepository.publish(state)
         AccessibilityMonitorRepository.publish(snapshot)
         initializeAiRuntimeIfAvailable(serviceGeneration)
@@ -350,6 +355,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         previousSnapshot = null
         lastActionableUiState = null
         attemptedControlKeys.clear()
+        lastForegroundTransitionKey = null
         misclickRecoveryCheck?.let(mainHandler::removeCallbacks)
         misclickRecoveryCheck = null
         misclickRecoveryPolicy.reset()
@@ -365,6 +371,41 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         AccessibilityMonitorRepository.setConnected(false)
     }
 
+
+    private fun logForegroundTransition(
+        observation: AccessibilityEventObservation,
+        rootPackage: String?,
+        validation: ForegroundWindowValidationPolicy.Result
+    ) {
+        val root = runCatching { rootInActiveWindow }.getOrNull()
+        val rootWindowId = runCatching { root?.windowId }.getOrNull()
+        val activeWindow = runCatching {
+            windows.firstOrNull { runCatching { it.isActive }.getOrDefault(false) }
+        }.getOrNull()
+        val activeRoot = runCatching { activeWindow?.root }.getOrNull()
+        val activePackage = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
+        val key = ForegroundWindowDiagnostics.transitionKey(
+            eventPackage = observation.packageName,
+            eventClass = observation.className,
+            rootPackage = rootPackage,
+            rootWindowId = rootWindowId,
+            activeWindowId = activeWindow?.id,
+            activeWindowType = activeWindow?.type,
+            activeWindowPackage = activePackage
+        )
+        if (key != lastForegroundTransitionKey) {
+            lastForegroundTransitionKey = key
+            val role = ForegroundWindowDiagnostics.classifyWindowType(
+                activeWindow?.type,
+                AccessibilityWindowInfo.TYPE_APPLICATION,
+                AccessibilityWindowInfo.TYPE_SYSTEM
+            )
+            Log.i(TAG, "foreground_transition event_type=${observation.eventType} event_pkg=${observation.packageName} event_class=${observation.className} root_pkg=$rootPackage root_window_id=$rootWindowId active_window_id=${activeWindow?.id} active_pkg=$activePackage active_type=${activeWindow?.type} role=$role validation=${validation.status.name.lowercase()}")
+        }
+        runCatching { activeRoot?.recycle() }
+        runCatching { activeWindow?.recycle() }
+        runCatching { root?.recycle() }
+    }
 
     /**
      * Confirms the captured frame still maps to the exact active application window.
