@@ -23,11 +23,13 @@ class AutonomousTargetSafetyPolicyTest {
         assertFalse(policy.canExecute(target(description = "Install now"), AdAction.CLOSE))
         assertFalse(policy.canExecute(target(text = "Learn more"), AdAction.NEXT_AD))
         assertFalse(policy.canExecute(target(text = "Continue"), AdAction.NEXT_AD))
+        assertFalse(policy.canExecute(target(text = "Play now"), AdAction.CONTINUE))
     }
 
     @Test fun rejectsCompletelyUnlabelledTargets() {
         assertFalse(policy.canExecute(target(), AdAction.CLOSE))
         assertFalse(policy.canExecute(target(text = "  "), AdAction.NEXT_AD))
+        assertFalse(policy.canExecute(target(), AdAction.CONTINUE))
     }
 
     @Test fun allowsOnlyActionSpecificSkipAndCloseLabels() {
@@ -39,5 +41,16 @@ class AutonomousTargetSafetyPolicyTest {
         assertTrue(policy.canExecute(target(text = "Skip ad"), AdAction.NEXT_AD))
         assertFalse(policy.canExecute(target(text = ">>"), AdAction.CLOSE))
         assertFalse(policy.canExecute(target(text = "✕"), AdAction.NEXT_AD))
+    }
+
+    @Test fun allowsContinueOnlyForExplicitResumeLabels() {
+        assertTrue(policy.canExecute(target(text = "Continue"), AdAction.CONTINUE))
+        assertTrue(policy.canExecute(target(description = "Resume"), AdAction.CONTINUE))
+        assertTrue(policy.canExecute(target(text = "Play"), AdAction.CONTINUE))
+        assertTrue(policy.canExecute(target(text = "Tap to resume"), AdAction.CONTINUE))
+        assertFalse(policy.canExecute(target(text = "Play now"), AdAction.CONTINUE))
+        assertFalse(policy.canExecute(target(text = "Install"), AdAction.CONTINUE))
+        assertFalse(policy.canExecute(target(text = "Continue"), AdAction.NEXT_AD))
+        assertFalse(policy.canExecute(target(text = "Continue"), AdAction.CLOSE))
     }
 }
