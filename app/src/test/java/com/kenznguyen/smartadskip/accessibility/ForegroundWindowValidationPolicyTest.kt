@@ -72,10 +72,13 @@ class ForegroundWindowValidationPolicyTest {
         assertFalse(result.isValid)
     }
 
-    @Test fun rejectsMissingRootWhenWindowListIsUnavailable() {
-        val result = evaluate(rootWindowId = null, windowsSnapshotAvailable = false)
-        assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_MISSING, result.status)
-        assertFalse(result.isCaptureValid)
+    @Test fun rejectsMissingOrInvalidRootWindowIdsWhenWindowListIsUnavailable() {
+        val missing = evaluate(rootWindowId = null, windowsSnapshotAvailable = false)
+        val invalid = evaluate(rootWindowId = -1, windowsSnapshotAvailable = false)
+        assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_MISSING, missing.status)
+        assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_MISSING, invalid.status)
+        assertFalse(missing.isCaptureValid)
+        assertFalse(invalid.isCaptureValid)
     }
 
     private companion object {
