@@ -1,10 +1,11 @@
 package com.kenznguyen.smartadskip.accessibility
 
 /**
- * Bounds recovery after an authorized click navigates away from the target app.
+ * Bounds recovery after an authorized click opens the Play Store or a browser.
  *
- * A BACK action is requested only when another package is positively observed.
- * Missing or unvalidated target windows abort recovery; they never authorize a click.
+ * BACK is never sent for an arbitrary external foreground package. The target app
+ * must be positively observed and its active application window validated before
+ * recovery is considered complete.
  */
 internal class MisclickRecoveryPolicy(
     private val maxBackAttempts: Int = DEFAULT_MAX_BACK_ATTEMPTS
@@ -54,8 +55,7 @@ internal class MisclickRecoveryPolicy(
             }
         }
 
-        // Unknown foreground is not evidence of a misclick. Fail closed without BACK.
-        if (packageName.isNullOrBlank()) {
+        if (packageName.isNullOrBlank() || packageName !in RECOVERABLE_EXTERNAL_PACKAGES) {
             pending = false
             backAttemptInFlight = false
             return Decision.ABORT_UNVERIFIED
@@ -85,5 +85,10 @@ internal class MisclickRecoveryPolicy(
     private companion object {
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         const val DEFAULT_MAX_BACK_ATTEMPTS = 2
+        val RECOVERABLE_EXTERNAL_PACKAGES = setOf(
+            "com.android.vending",
+            "com.android.chrome",
+            "com.android.browser"
+        )
     }
 }
