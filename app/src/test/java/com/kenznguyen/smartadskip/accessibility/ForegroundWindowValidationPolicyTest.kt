@@ -14,7 +14,8 @@ class ForegroundWindowValidationPolicyTest {
         activeWindowPackage: String? = TARGET,
         activeWindowType: Int? = APPLICATION,
         activeWindowIsActive: Boolean = true,
-        serviceConnected: Boolean = true
+        serviceConnected: Boolean = true,
+        windowsSnapshotAvailable: Boolean = true
     ) = ForegroundWindowValidationPolicy.evaluate(
         expectedPackage = TARGET,
         snapshotPackage = snapshotPackage,
@@ -25,7 +26,8 @@ class ForegroundWindowValidationPolicyTest {
         activeWindowType = activeWindowType,
         applicationWindowType = APPLICATION,
         activeWindowIsActive = activeWindowIsActive,
-        serviceConnected = serviceConnected
+        serviceConnected = serviceConnected,
+        windowsSnapshotAvailable = windowsSnapshotAvailable
     )
 
     @Test fun acceptsOnlyTheCurrentActiveTargetApplicationWindow() {
@@ -53,6 +55,27 @@ class ForegroundWindowValidationPolicyTest {
         val result = evaluate(activeWindowIsActive = false)
         assertFalse(result.isValid)
         assertEquals(ForegroundWindowValidationPolicy.Status.WINDOW_NOT_ACTIVE, result.status)
+    }
+
+
+    @Test fun allowsCaptureButNeverClickWhenTargetRootIsValidAndWindowListUnavailable() {
+        val result = evaluate(windowsSnapshotAvailable = false)
+        assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_VERIFIED_WINDOWS_UNAVAILABLE, result.status)
+        assertTrue(result.isCaptureValid)
+        assertFalse(result.isValid)
+    }
+
+    @Test fun rejectsAnotherForegroundPackageEvenWhenWindowListIsUnavailable() {
+        val result = evaluate(rootPackage = "com.android.systemui", windowsSnapshotAvailable = false)
+        assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_PACKAGE_MISMATCH, result.status)
+        assertFalse(result.isCaptureValid)
+        assertFalse(result.isValid)
+    }
+
+    @Test fun rejectsMissingRootWhenWindowListIsUnavailable() {
+        val result = evaluate(rootWindowId = null, windowsSnapshotAvailable = false)
+        assertEquals(ForegroundWindowValidationPolicy.Status.ROOT_MISSING, result.status)
+        assertFalse(result.isCaptureValid)
     }
 
     private companion object {
