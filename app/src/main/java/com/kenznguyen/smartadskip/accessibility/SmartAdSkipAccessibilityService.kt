@@ -870,7 +870,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                             ) {
                                 stopAdMonitoringSession()
                             } else {
-                                scheduleAdMonitoring(snapshot, previous, decision.reason)
+                                scheduleAdMonitoring(decision.reason)
                             }
                         }
                         is AutonomousDecision.Act -> {
@@ -1206,11 +1206,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
      * Every tick verifies the same target package and Accessibility window identity.
      * The refreshed frame still passes the normal foreground, freshness, target and click gates.
      */
-    private fun scheduleAdMonitoring(
-        snapshot: AccessibilitySnapshot,
-        previous: AccessibilitySnapshot?,
-        reason: String
-    ) {
+    private fun scheduleAdMonitoring(reason: String) {
         if (!adMonitoringSessionActive) {
             Log.d(TAG, "ad_monitor_schedule_skipped reason=no_confirmed_ad_session model_reason=$reason")
             return
@@ -1222,8 +1218,20 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             Log.w(TAG, "ad_monitor_stopped reason=missing_ad_window_identity")
             return
         }
+        val currentRoot = runCatching { rootInActiveWindow }.getOrNull()
+        val currentPackage = runCatching { currentRoot?.packageName?.toString() }.getOrNull()
+        val currentWindowId = runCatching { currentRoot?.windowId }.getOrNull()
+        runCatching { currentRoot?.recycle() }
+        val foreground = validateForegroundWindow(TARGET_PACKAGE)
+        val targetForegroundVerified = currentPackage == TARGET_PACKAGE &&
+            currentWindowId == expectedWindowId && foreground.isCaptureValid
+        if (!targetForegroundVerified) {
+            stopAdMonitoringSession()
+            Log.i(TAG, "ad_monitor_stopped reason=foreground_not_verified package=$currentPackage window_id=$currentWindowId validation=${foreground.status.name.lowercase()}")
+            return
+        }
         val delayMillis = adMonitoringPolicy.nextDelayMillis(
-            isTargetForeground = true,
+            isTargetForeground = targetForegroundVerified,
             isKnownAdState = true
         ) ?: run {
             Log.i(TAG, "ad_monitor_budget_exhausted max_cycles_reached=true")
