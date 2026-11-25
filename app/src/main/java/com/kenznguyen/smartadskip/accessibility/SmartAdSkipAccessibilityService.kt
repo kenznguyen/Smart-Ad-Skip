@@ -379,9 +379,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     ) {
         val root = runCatching { rootInActiveWindow }.getOrNull()
         val rootWindowId = runCatching { root?.windowId }.getOrNull()
-        val activeWindow = runCatching {
-            windows.firstOrNull { runCatching { it.isActive }.getOrDefault(false) }
-        }.getOrNull()
+        val windowList = runCatching { windows }.getOrDefault(emptyList())
+        val activeWindow = windowList.firstOrNull { runCatching { it.isActive }.getOrDefault(false) }
         val activeRoot = runCatching { activeWindow?.root }.getOrNull()
         val activePackage = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
         val key = ForegroundWindowDiagnostics.transitionKey(
@@ -403,7 +402,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             Log.i(TAG, "foreground_transition event_type=${observation.eventType} event_pkg=${observation.packageName} event_class=${observation.className} root_pkg=$rootPackage root_window_id=$rootWindowId active_window_id=${activeWindow?.id} active_pkg=$activePackage active_type=${activeWindow?.type} role=$role validation=${validation.status.name.lowercase()}")
         }
         runCatching { activeRoot?.recycle() }
-        runCatching { activeWindow?.recycle() }
+        windowList.forEach { runCatching { it.recycle() } }
+        runCatching { activeRoot?.recycle() }
         runCatching { root?.recycle() }
     }
 
