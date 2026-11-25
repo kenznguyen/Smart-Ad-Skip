@@ -2,12 +2,9 @@ package com.kenznguyen.smartadskip.accessibility
 
 /**
  * Pixel-only classifier for the two Fruit Blast ad controls approved for P2.6.
- *
- * The detector intentionally accepts a cropped Accessibility node bitmap. It does not
- * inspect text, resource IDs, content descriptions, or coordinates outside that crop.
- * Low-confidence or ambiguous crops return UNKNOWN.
+ * CONTINUE is intentionally AI-only: this detector does not infer paused-ad state.
  */
-enum class VisualActionType { NEXT_AD, CLOSE, UNKNOWN }
+enum class VisualActionType { NEXT_AD, CLOSE, CONTINUE, UNKNOWN }
 
 data class VisualFrame(
     val width: Int,
@@ -80,8 +77,6 @@ class VisualActionDetector(
         val grayRatio = gray / total
         val whiteRatio = white / total
         val darkRatio = dark / total
-
-        // NEXT_AD is the yellow-ring control with two bright chevrons.
         val nextGlyph = whiteRatio >= 0.025f && chevronDown + chevronUp >= 8
         val nextScore = minOf(1f, yellowRatio / 0.10f) *
             if (nextGlyph && darkRatio <= 0.35f) 1f else 0.45f
@@ -89,14 +84,12 @@ class VisualActionDetector(
             return VisualActionMatch(VisualActionType.NEXT_AD, nextScore)
         }
 
-        // CLOSE is a neutral gray circular button with two crossing bright strokes.
         val closeGlyph = whiteRatio >= 0.018f && xPositive >= 3 && xNegative >= 3
         val closeScore = minOf(1f, grayRatio / 0.24f) *
             if (closeGlyph && yellowRatio < 0.02f) 1f else 0.40f
         if (grayRatio >= 0.10f && closeGlyph && closeScore >= minimumConfidence) {
             return VisualActionMatch(VisualActionType.CLOSE, closeScore)
         }
-
         return unknown()
     }
 
