@@ -241,6 +241,13 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         previousSnapshot = snapshot
         val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
         if (state == AdState.AD_PLAYING || state == AdState.SKIP_AVAILABLE) {
+            if (!isAdMonitorTick && adMonitoringSessionActive &&
+                (adMonitoringActivityClassName != observation.className ||
+                    adMonitoringWindowId != activeWindowId?.takeIf { it >= 0 })
+            ) {
+                adMonitoringPolicy.reset()
+                cancelAdMonitoringRunnable()
+            }
             adMonitoringSessionActive = true
             if (!isAdMonitorTick) {
                 adMonitoringActivityClassName = observation.className
