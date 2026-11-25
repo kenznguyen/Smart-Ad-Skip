@@ -394,20 +394,34 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val rootPackage = runCatching { root.packageName?.toString() }.getOrNull()
         val rootWindowId = runCatching { root.windowId }.getOrNull()
         val windowList = runCatching { windows }.getOrDefault(emptyList())
-        val activeWindow = windowList.firstOrNull { it.id == rootWindowId }
+        // rootInActiveWindow and windows[] are separate framework snapshots. Match the
+        // actual active window, not merely whichever window happens to share root.windowId.
+        val activeWindow = windowList.firstOrNull { runCatching { it.isActive }.getOrDefault(false) }
+        val activeRoot = runCatching { activeWindow?.root }.getOrNull()
+        val activePackage = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
+        val activeId = activeWindow?.id
+        val activeType = activeWindow?.type
         val result = ForegroundWindowValidationPolicy.evaluate(
             expectedPackage = expectedPackage,
             snapshotPackage = snapshotPackage,
             rootPackage = rootPackage,
             rootWindowId = rootWindowId,
-            activeWindowId = activeWindow?.id,
-            activeWindowPackage = rootPackage,
-            activeWindowType = activeWindow?.type,
+            activeWindowId = activeId,
+            activeWindowPackage = activePackage,
+            activeWindowType = activeType,
             applicationWindowType = AccessibilityWindowInfo.TYPE_APPLICATION,
             activeWindowIsActive = activeWindow?.isActive == true,
             serviceConnected = connected
         )
+        val windowSummary = windowList.joinToString(";") { window ->
+            val windowRoot = runCatching { window.root }.getOrNull()
+            val packageName = runCatching { windowRoot?.packageName?.toString() }.getOrNull() ?: "null"
+            runCatching { windowRoot?.recycle() }
+            "id=${window.id},type=${window.type},active=${window.isActive},focused=${window.isFocused},pkg=$packageName"
+        }
+        Log.d(TAG, "foreground_window_diagnostic status=${result.status.name.lowercase()} expected=$expectedPackage snapshot=$snapshotPackage root_pkg=$rootPackage root_window_id=$rootWindowId active_window_id=$activeId active_pkg=$activePackage active_type=$activeType windows=[$windowSummary]")
         windowList.forEach { runCatching { it.recycle() } }
+        runCatching { activeRoot?.recycle() }
         runCatching { root.recycle() }
         return result
     }
