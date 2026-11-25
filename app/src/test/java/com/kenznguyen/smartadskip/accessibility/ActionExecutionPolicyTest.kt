@@ -12,12 +12,14 @@ class ActionExecutionPolicyTest {
     fun blocksEveryActionWhenAdStateIsUnknown() {
         assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.NEXT_AD))
         assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.CLOSE))
+        assertFalse(policy.canClick(AdState.UNKNOWN, VisualActionType.CONTINUE))
     }
 
     @Test
     fun blocksUnknownVisualActionInConfirmedAdContext() {
         assertFalse(policy.canClick(AdState.AD_PLAYING, VisualActionType.UNKNOWN))
         assertFalse(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.UNKNOWN))
+        assertFalse(policy.canClick(AdState.AD_PAUSED, VisualActionType.UNKNOWN))
     }
 
     @Test
@@ -26,6 +28,15 @@ class ActionExecutionPolicyTest {
         assertTrue(policy.canClick(AdState.AD_PLAYING, VisualActionType.CLOSE))
         assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.NEXT_AD))
         assertTrue(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.CLOSE))
+        assertFalse(policy.canClick(AdState.AD_PLAYING, VisualActionType.CONTINUE))
+        assertFalse(policy.canClick(AdState.SKIP_AVAILABLE, VisualActionType.CONTINUE))
+    }
+
+    @Test
+    fun continueIsAllowedOnlyWhenAiHasConfirmedPausedAdState() {
+        assertTrue(policy.canClick(AdState.AD_PAUSED, VisualActionType.CONTINUE))
+        assertFalse(policy.canClick(AdState.AD_PAUSED, VisualActionType.NEXT_AD))
+        assertFalse(policy.canClick(AdState.AD_PAUSED, VisualActionType.CLOSE))
     }
 
     @Test
@@ -40,5 +51,6 @@ class ActionExecutionPolicyTest {
     fun alwaysBlocksCompletedAdContext() {
         assertFalse(policy.canClick(AdState.AD_COMPLETED, VisualActionType.NEXT_AD))
         assertFalse(policy.canClick(AdState.AD_COMPLETED, VisualActionType.CLOSE))
+        assertFalse(policy.canClick(AdState.AD_COMPLETED, VisualActionType.CONTINUE))
     }
 }
