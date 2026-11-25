@@ -37,6 +37,12 @@ class AutonomousAdDecisionEngineTest {
         assertEquals(AdAction.NEXT_AD, (decision as AutonomousDecision.Act).action)
     }
 
+    @Test fun modelCanChooseContinueForPausedAd() = runBlocking {
+        val runtime = FakeRuntime(output = Qwen3VlOutput(AdAction.CONTINUE, "close-1", 0.93f))
+        val decision = AutonomousAdDecisionEngine(runtime, { now }).decide(context())
+        assertEquals(AdAction.CONTINUE, (decision as AutonomousDecision.Act).action)
+    }
+
     @Test fun unavailableLocalModelWaitsWithoutRuleFallback() = runBlocking {
         val decision = AutonomousAdDecisionEngine(FakeRuntime(isModelReady = false), { now }).decide(context())
         assertEquals(AutonomousDecision.Wait("qwen3_vl_not_ready"), decision)
