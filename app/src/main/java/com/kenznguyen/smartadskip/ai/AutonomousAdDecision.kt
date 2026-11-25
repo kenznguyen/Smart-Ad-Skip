@@ -7,7 +7,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The model is the sole source of action decisions. The executor only translates a
  * validated decision into an Android Accessibility action; it does not re-rank candidates.
  */
-enum class AdAction { NEXT_AD, CLOSE, WAIT }
+enum class AdAction { NEXT_AD, CLOSE, CONTINUE, WAIT }
 
 data class AdUiElement(
     val id: String,
@@ -23,7 +23,6 @@ data class AdFrameContext(
     val screenHeight: Int,
     val imageJpeg: ByteArray,
     val elements: List<AdUiElement>,
-    /** Unique screenshot request that produced both pixels and Accessibility metadata. */
     val frameId: Long = 1L
 )
 
@@ -50,11 +49,6 @@ interface Qwen3VlRuntime {
     suspend fun infer(context: AdFrameContext): Qwen3VlOutput
 }
 
-/**
- * No rule-based fallback is allowed: if the local model is unavailable, the system waits.
- * The guards here validate the model's output and frame freshness; they do not choose an
- * action on the model's behalf.
- */
 class AutonomousAdDecisionEngine(
     private val runtime: Qwen3VlRuntime,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -70,7 +64,6 @@ class AutonomousAdDecisionEngine(
             clock() - context.observedAtEpochMillis !in 0L..MAX_FRAME_AGE_MILLIS
         ) return AutonomousDecision.Wait("stale_frame")
         if (!runtime.isModelReady) return AutonomousDecision.Wait("qwen3_vl_not_ready")
-
         if (inferenceTimeoutMillis <= 0L) return AutonomousDecision.Wait("invalid_inference_timeout")
         val output = try {
             withTimeoutOrNull(inferenceTimeoutMillis) { runtime.infer(context) }
@@ -78,8 +71,6 @@ class AutonomousAdDecisionEngine(
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (busy: NativeInferenceBusyException) {
-            // A previous JNI call may still be running after its caller timed out. This is
-            // backpressure, not a native failure; keep the runtime alive and wait for its slot.
             return AutonomousDecision.Wait("inference_busy")
         } catch (_: Exception) {
             return AutonomousDecision.Wait("inference_failed")
@@ -89,7 +80,6 @@ class AutonomousAdDecisionEngine(
         if (!output.confidence.isFinite() ||
             output.confidence !in minimumConfidence..1.0f
         ) return AutonomousDecision.Wait("confidence_below_threshold")
-
         val targetId = output.targetElementId ?: return AutonomousDecision.Wait("missing_target")
         val target = context.elements.singleOrNull { it.id == targetId }
             ?: return AutonomousDecision.Wait("target_not_unique")
