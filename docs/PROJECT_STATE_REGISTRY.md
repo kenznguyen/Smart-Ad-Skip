@@ -84,11 +84,32 @@ Verification boundary:
 - No physical-device runtime PASS is asserted here.
 - Re-check CI against the new registry commit before claiming that the new commit is CI-verified.
 
+
+
+### O1 post-commit verification
+
+O1 registry commit:
+- Commit: `0280ef1b4b61a63e665cbebf96528b868cae30bb`
+- Parent: `e7782c4ca94f1cef7b2a551e327017e0e18b8a0e`
+- Changed files: exactly `docs/PROJECT_STATE_REGISTRY.md`
+- [O1 commit](https://github.com/kenznguyen/Smart-Ad-Skip/commit/0280ef1b4b61a63e665cbebf96528b868cae30bb)
+
+| Workflow | Run ID | Commit tested | Result | Verified coverage |
+|---|---:|---|---|---|
+| Android CI | 45584844540 | `0280ef1b4b61a63e665cbebf96528b868cae30bb` | completed / success | Unit tests, debug APK assembly, instrumentation-test compilation, artifact upload |
+| P2.17 Android CI | 45584844539 | `0280ef1b4b61a63e665cbebf96528b868cae30bb` | completed / success | Unit tests, debug APK assembly, instrumentation-test compilation, artifact upload |
+
+Run links:
+- [Android CI run 45584844540](https://github.com/kenznguyen/Smart-Ad-Skip/actions/runs/45584844540)
+- [P2.17 Android CI run 45584844539](https://github.com/kenznguyen/Smart-Ad-Skip/actions/runs/45584844539)
+
+Both workflow runs completed successfully on 2026-11-25. Job and step summaries show all listed steps completed with success. These workflows compile instrumentation tests but do not execute them on a physical Android device. This evidence verifies the O1 commit above; it does not pre-verify the follow-up registry-only commit that records this result.
+
 ## 5. Findings register
 
 | ID | Severity | Component | Finding / impact | Status | Proposed next action |
 |---|---|---|---|---|---|
-| ORCH-001 | P1 | Project coordination state | A repository-level source of truth for current project/task state was missing, increasing session drift risk | IMPLEMENTED by this registry; verification pending | Review this registry against approved project governance and update after each authorized milestone |
+| ORCH-001 | P1 | Project coordination state | A repository-level source of truth for current project/task state was missing, increasing session drift risk | IMPLEMENTED; commit and hosted CI evidence verified | Continue maintaining the registry only through separately authorized updates |
 | ORCH-002 | P1 | Git integration | Active P2 branch was 438 commits ahead of `main` at baseline; default-branch consumers may see an older project state | OPEN | Preserve current branch; plan a separately approved integration strategy and assess the large delta before any merge |
 | ORCH-003 | P2 | Task planning | No central dependency graph was found in the inspected repository paths | OPEN | O2: define task dependencies without duplicating milestone details |
 | ORCH-004 | P2 | Verification evidence | CI, PR, commit, instrumentation, and device evidence are not yet linked in a dedicated evidence ledger | OPEN | O3: create an evidence ledger with immutable run/commit/device references |
@@ -102,7 +123,7 @@ The following is a proposed coordination sequence, not approval to execute futur
 
 | Work item | Purpose | Depends on | State |
 |---|---|---|---|
-| O1 — Project State Registry | Establish one repository-level state snapshot | Existing repository baseline | APPROVED; implemented in this document; post-commit verification pending |
+| O1 — Project State Registry | Establish one repository-level state snapshot | Existing repository baseline | IMPLEMENTED; commit and both hosted CI runs verified for O1 commit; physical-device validation is not applicable to this documentation task |
 | O2 — Task Dependency Graph | Record prerequisite and downstream relationships | O1 | PROPOSED |
 | O3 — Evidence Ledger | Link tasks to commits, PRs, CI, tests, and device evidence | O1; O2 recommended | PROPOSED |
 | O4 — Governance Enforcement | Make authorization and scope gates explicit and auditable | O1; O2; O3 | PROPOSED |
@@ -155,4 +176,6 @@ Copy and update this section at task boundaries; do not claim persistence until 
 - Baseline parent: `e7782c4ca94f1cef7b2a551e327017e0e18b8a0e`.
 - Authorization: user explicitly approved O1 and then explicitly approved a commit containing only this document.
 - Excluded: Android source, tests, Gradle, workflows, PRs, merges, deployments, and device/runtime operations.
-- Post-commit SHA and CI result: to be recorded after GitHub confirms the commit/ref update and the resulting workflow status.
+- O1 implementation commit: `0280ef1b4b61a63e665cbebf96528b868cae30bb`; changed exactly this registry file.
+- O1 CI evidence: Android CI run `45584844540` and P2.17 Android CI run `45584844539`, both completed successfully against the implementation commit.
+- Follow-up registry update: records the confirmed O1 commit and CI evidence; its own resulting commit SHA and CI status must be checked after the write.
