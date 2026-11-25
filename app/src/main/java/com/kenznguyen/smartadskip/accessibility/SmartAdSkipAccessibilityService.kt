@@ -87,6 +87,11 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val latestFrameCoalescer = LatestFrameCoalescer<PendingFrame>()
     private var screenshotCaptureTimeout: Runnable? = null
     private var pendingFrameDrain: Runnable? = null
+    private val adMonitoringPolicy = AdMonitoringPolicy()
+    private var adMonitoringRunnable: Runnable? = null
+    private var adMonitoringSessionActive = false
+    private var adMonitoringActivityClassName: String? = null
+    private var adMonitoringWindowId: Int? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command -> mainHandler.post(command) }
     private var previousSnapshot: AccessibilitySnapshot? = null
@@ -178,11 +183,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun processAccessibilityEvent(observation: AccessibilityEventObservation) {
+    private fun processAccessibilityEvent(
+        observation: AccessibilityEventObservation,
+        isAdMonitorTick: Boolean = false
+    ) {
+        if (!isAdMonitorTick) cancelAdMonitoringRunnable()
         // event.packageName identifies the event source, not necessarily the active app.
         // Use the active window root as the foreground-package source of truth.
         val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
         val activePackageName = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
+        val activeWindowId = runCatching { activeRoot?.windowId }.getOrNull()
         val foreground = validateForegroundWindow(TARGET_PACKAGE)
         logForegroundTransition(observation, activePackageName, foreground)
         if (misclickRecoveryPolicy.isPending) {
@@ -196,10 +206,14 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             }
         }
         if (!foreground.isCaptureValid) {
+            stopAdMonitoringSession()
             Log.d(TAG, "foreground_window_rejected stage=event reason=${foreground.status.name.lowercase()}")
             return
         }
-        if (!adStateClassifier.isRelevantPackage(activePackageName)) return
+        if (!adStateClassifier.isRelevantPackage(activePackageName)) {
+            stopAdMonitoringSession()
+            return
+        }
 
         val nodes = runCatching { collectStructuralNodes(activeRoot) }
             .getOrDefault(emptyList())
@@ -225,7 +239,18 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val priorSnapshot = previousSnapshot
         previousSnapshot = snapshot
         val state = adStateClassifier.classify(snapshot, now, priorSnapshot)
-        Log.i(TAG, "foreground_content_classification package=$activePackageName event_class=${observation.className} window_role=application ad_state=$state")
+        if (state == AdState.AD_PLAYING || state == AdState.SKIP_AVAILABLE) {
+            adMonitoringSessionActive = true
+            if (!isAdMonitorTick) {
+                adMonitoringActivityClassName = observation.className
+                adMonitoringWindowId = activeWindowId?.takeIf { it >= 0 }
+            }
+        } else if (state == AdState.AD_COMPLETED ||
+            (!isAdMonitorTick && isWindowStateChanged)
+        ) {
+            stopAdMonitoringSession()
+        }
+        Log.i(TAG, "foreground_content_classification package=$activePackageName event_class=${observation.className} window_role=application ad_state=$state monitor_tick=$isAdMonitorTick")
         AdDetectionRepository.publish(state)
         AccessibilityMonitorRepository.publish(snapshot)
         initializeAiRuntimeIfAvailable(serviceGeneration)
@@ -365,6 +390,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private fun newServiceScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private fun resetMonitoringState() {
+        stopAdMonitoringSession()
         accessibilityEventDebounceRunnable?.let(mainHandler::removeCallbacks)
         accessibilityEventDebounceRunnable = null
         accessibilityEventDebouncer.clear()
@@ -839,8 +865,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                                 AiRuntimeDashboardStatus.setFailed("native_inference_failed")
                             }
                             logDeny("ai_decision", decision.reason)
+                            if (decision.reason == "inference_failed" ||
+                                decision.reason.contains("timeout", ignoreCase = true)
+                            ) {
+                                stopAdMonitoringSession()
+                            } else {
+                                scheduleAdMonitoring(snapshot, previous, decision.reason)
+                            }
                         }
                         is AutonomousDecision.Act -> {
+                            cancelAdMonitoringRunnable()
                             AiRuntimeDashboardStatus.recordDecision(
                                 action = decision.action.name,
                                 reason = "model_selected_target",
@@ -1152,6 +1186,91 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         }
         misclickRecoveryCheck = check
         mainHandler.postDelayed(check, MISCLICK_RECOVERY_CHECK_DELAY_MILLIS)
+    }
+
+    private fun cancelAdMonitoringRunnable() {
+        adMonitoringRunnable?.let(mainHandler::removeCallbacks)
+        adMonitoringRunnable = null
+    }
+
+    private fun stopAdMonitoringSession() {
+        cancelAdMonitoringRunnable()
+        adMonitoringPolicy.reset()
+        adMonitoringSessionActive = false
+        adMonitoringActivityClassName = null
+        adMonitoringWindowId = null
+    }
+
+    /**
+     * Re-observes a positively identified ad when the model returns WAIT.
+     * Every tick verifies the same target package and Accessibility window identity.
+     * The refreshed frame still passes the normal foreground, freshness, target and click gates.
+     */
+    private fun scheduleAdMonitoring(
+        snapshot: AccessibilitySnapshot,
+        previous: AccessibilitySnapshot?,
+        reason: String
+    ) {
+        if (!adMonitoringSessionActive) {
+            Log.d(TAG, "ad_monitor_schedule_skipped reason=no_confirmed_ad_session model_reason=$reason")
+            return
+        }
+        val expectedWindowId = adMonitoringWindowId
+        val activityClassName = adMonitoringActivityClassName
+        if (expectedWindowId == null || activityClassName.isNullOrBlank()) {
+            stopAdMonitoringSession()
+            Log.w(TAG, "ad_monitor_stopped reason=missing_ad_window_identity")
+            return
+        }
+        val delayMillis = adMonitoringPolicy.nextDelayMillis(
+            isTargetForeground = true,
+            isKnownAdState = true
+        ) ?: run {
+            Log.i(TAG, "ad_monitor_budget_exhausted max_cycles_reached=true")
+            stopAdMonitoringSession()
+            return
+        }
+        cancelAdMonitoringRunnable()
+        val tick = Runnable {
+            adMonitoringRunnable = null
+            if (!aiServiceLifecycleGate.isCurrent(serviceGeneration)) {
+                stopAdMonitoringSession()
+                return@Runnable
+            }
+            val root = runCatching { rootInActiveWindow }.getOrNull()
+            val packageName = runCatching { root?.packageName?.toString() }.getOrNull()
+            val windowId = runCatching { root?.windowId }.getOrNull()
+            runCatching { root?.recycle() }
+            val foreground = validateForegroundWindow(TARGET_PACKAGE)
+            if (packageName != TARGET_PACKAGE || windowId != expectedWindowId ||
+                !foreground.isCaptureValid
+            ) {
+                Log.i(
+                    TAG,
+                    "ad_monitor_stopped reason=foreground_or_window_changed package=$packageName window_id=$windowId expected_window_id=$expectedWindowId validation=${foreground.status.name.lowercase()}"
+                )
+                stopAdMonitoringSession()
+                return@Runnable
+            }
+            Log.i(
+                TAG,
+                "ad_monitor_tick cycle_remaining=${adMonitoringPolicy.hasRemainingCycles} delay_ms=$delayMillis window_id=$windowId"
+            )
+            processAccessibilityEvent(
+                AccessibilityEventObservation(
+                    eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                    className = activityClassName,
+                    packageName = TARGET_PACKAGE
+                ),
+                isAdMonitorTick = true
+            )
+        }
+        adMonitoringRunnable = tick
+        mainHandler.postDelayed(tick, delayMillis)
+        Log.i(
+            TAG,
+            "ad_monitor_scheduled delay_ms=$delayMillis remaining=${adMonitoringPolicy.hasRemainingCycles} model_reason=$reason"
+        )
     }
 
     private fun logDeny(stage: String, reason: String) {
