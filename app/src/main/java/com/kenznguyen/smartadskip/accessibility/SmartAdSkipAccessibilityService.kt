@@ -58,6 +58,8 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
     private val temporalPatternAnalyzer = TemporalPatternAnalyzer()
     private val actionableNodeDetector = ActionableNodeDetector()
     private val actionExecutionPolicy = ActionExecutionPolicy()
+    private val misclickRecoveryPolicy = MisclickRecoveryPolicy(maxBackAttempts = 2)
+    private var misclickRecoveryCheck: Runnable? = null
     private val autonomousTargetSafetyPolicy = AutonomousTargetSafetyPolicy()
     private val accessibilityNodeMatcher = AccessibilityNodeMatcher()
     private val aiRuntimeConfig = Qwen3VlRuntimeConfig()
@@ -163,6 +165,16 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
         val activePackageName = runCatching { activeRoot?.packageName?.toString() }.getOrNull()
         val foreground = validateForegroundWindow(TARGET_PACKAGE)
+        if (misclickRecoveryPolicy.isPending) {
+            val recoveryDecision = misclickRecoveryPolicy.onWindowObserved(
+                packageName = activePackageName,
+                targetWindowValid = activePackageName == TARGET_PACKAGE && foreground.isValid
+            )
+            if (handleMisclickRecoveryDecision(recoveryDecision)) {
+                runCatching { activeRoot?.recycle() }
+                return
+            }
+        }
         if (!foreground.isValid) {
             Log.d(TAG, "foreground_window_rejected stage=event reason=${foreground.status.name.lowercase()}")
             return
@@ -338,6 +350,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         previousSnapshot = null
         lastActionableUiState = null
         attemptedControlKeys.clear()
+        misclickRecoveryCheck?.let(mainHandler::removeCallbacks)
+        misclickRecoveryCheck = null
+        misclickRecoveryPolicy.reset()
         screenshotCaptureTimeout?.let(mainHandler::removeCallbacks)
         screenshotCaptureTimeout = null
         pendingFrameDrain?.let(mainHandler::removeCallbacks)
@@ -965,7 +980,9 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
                 false
             }
             if (clicked) {
-                Log.i(TAG, "click_dispatched action=$action source_live_accessibility=true")
+                misclickRecoveryPolicy.onClickDispatched()
+                scheduleMisclickRecoveryCheck()
+                Log.i(TAG, "click_dispatched action=$action source_live_accessibility=true recovery_back_limit=2")
             } else {
                 logDeny("perform_action", "accessibility_action_click_returned_false")
             }
@@ -973,6 +990,73 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
             liveNodes.forEach { it.recycle() }
             while (pending.isNotEmpty()) pending.removeFirst().recycle()
         }
+    }
+
+    private fun handleMisclickRecoveryDecision(
+        decision: MisclickRecoveryPolicy.Decision
+    ): Boolean {
+        when (decision) {
+            MisclickRecoveryPolicy.Decision.IDLE -> return false
+            MisclickRecoveryPolicy.Decision.TARGET_CONFIRMED -> {
+                misclickRecoveryCheck?.let(mainHandler::removeCallbacks)
+                misclickRecoveryCheck = null
+                Log.i(TAG, "misclick_recovery target_window_confirmed=true")
+                return false
+            }
+            MisclickRecoveryPolicy.Decision.WAIT -> return true
+            MisclickRecoveryPolicy.Decision.REQUEST_BACK -> {
+                val accepted = runCatching {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                }.getOrDefault(false)
+                Log.w(
+                    TAG,
+                    "misclick_recovery back_attempt=${misclickRecoveryPolicy.attempts} " +
+                        "max_attempts=2 dispatched=$accepted"
+                )
+                scheduleMisclickRecoveryCheck()
+                return true
+            }
+            MisclickRecoveryPolicy.Decision.EXHAUSTED -> {
+                misclickRecoveryCheck?.let(mainHandler::removeCallbacks)
+                misclickRecoveryCheck = null
+                Log.e(TAG, "misclick_recovery exhausted=true back_attempts=2 auto_click_stopped=true")
+                return true
+            }
+            MisclickRecoveryPolicy.Decision.ABORT_UNVERIFIED -> {
+                misclickRecoveryCheck?.let(mainHandler::removeCallbacks)
+                misclickRecoveryCheck = null
+                Log.w(TAG, "misclick_recovery aborted reason=foreground_unverified auto_click_stopped=true")
+                return true
+            }
+        }
+    }
+
+    private fun scheduleMisclickRecoveryCheck() {
+        misclickRecoveryCheck?.let(mainHandler::removeCallbacks)
+        val check = Runnable {
+            misclickRecoveryCheck = null
+            if (!misclickRecoveryPolicy.isPending) return@Runnable
+
+            misclickRecoveryPolicy.onBackAttemptSettled()
+            val root = runCatching { rootInActiveWindow }.getOrNull()
+            val packageName = runCatching { root?.packageName?.toString() }.getOrNull()
+            runCatching { root?.recycle() }
+            val targetValid = packageName == TARGET_PACKAGE &&
+                validateForegroundWindow(TARGET_PACKAGE).isValid
+            val decision = misclickRecoveryPolicy.onWindowObserved(packageName, targetValid)
+            val shouldResume = decision == MisclickRecoveryPolicy.Decision.TARGET_CONFIRMED
+            if (handleMisclickRecoveryDecision(decision)) return@Runnable
+            if (shouldResume) {
+                processAccessibilityEvent(
+                    AccessibilityEventObservation(
+                        eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                        className = null
+                    )
+                )
+            }
+        }
+        misclickRecoveryCheck = check
+        mainHandler.postDelayed(check, MISCLICK_RECOVERY_CHECK_DELAY_MILLIS)
     }
 
     private fun logDeny(stage: String, reason: String) {
@@ -1019,6 +1103,7 @@ class SmartAdSkipAccessibilityService : AccessibilityService() {
         const val MAX_AI_ELEMENTS = 64
         const val SCREENSHOT_CAPTURE_TIMEOUT_MILLIS = 5_000L
         const val ACCESSIBILITY_EVENT_DEBOUNCE_MILLIS = 120L
+        const val MISCLICK_RECOVERY_CHECK_DELAY_MILLIS = 750L
         const val TARGET_PACKAGE = "com.funnyvideo.cgame.fruitblast"
         val APPROVED_ACTIONS = setOf(VisualActionType.NEXT_AD, VisualActionType.CLOSE)
     }
