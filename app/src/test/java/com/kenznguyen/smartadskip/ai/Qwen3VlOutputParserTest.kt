@@ -15,6 +15,14 @@ class Qwen3VlOutputParserTest {
         assertEquals(0.96f, result.confidence)
     }
 
+    @Test fun parsesContinueDecisionForPausedAd() {
+        val result = Qwen3VlOutputParser.parse(
+            """{"action":"CONTINUE","targetElementId":"node-2","confidence":0.93,"rationale":"Ad playback is paused"}"""
+        )
+        assertEquals(AdAction.CONTINUE, result.action)
+        assertEquals("node-2", result.targetElementId)
+    }
+
     @Test fun parsesWaitWithoutTarget() {
         val result = Qwen3VlOutputParser.parse(
             """{"action":"WAIT","targetElementId":null,"confidence":0.99,"rationale":"No clear control"}"""
